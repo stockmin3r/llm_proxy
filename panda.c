@@ -217,7 +217,7 @@ void *panda_thread(void *args)
 	struct thread      *thread = (struct thread *)args;
 	struct epoll_event  panda_events;
 	struct epoll_event *events, *event;
-	char               *argv[] = { "../llama.cpp/main",  "--log-disable", "-m", "openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--color", "--interactive-first", NULL };
+	char               *argv[] = { "../llama.cpp/main",  "--log-disable", "-m", "../llama.cpp/openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--color", "--interactive-first", NULL };
 	int                 nr_events, fd, epoll_fd;
 
 	// open epoll descriptor on the parent thread
