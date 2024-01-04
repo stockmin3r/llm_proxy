@@ -273,7 +273,7 @@ int main()
 
 	panda_server_fd = net_tcp_bind(inet_addr("127.0.0.1"), config.panda_port);
 	while (1) {
-		client_fd = accept4(panda_server_fd, (struct sockaddr *)&client_addr, &client_addr_len, O_NONBLOCK);
+		client_fd = accept(panda_server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		nbytes    = read(client_fd, question_buf, sizeof(question_buf)-1);
 		printf("question: %s\n", question_buf);
 		query  = malloc(sizeof(*query));
