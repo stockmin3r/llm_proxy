@@ -1,3 +1,10 @@
+/*
+ * Written by Aryaman Pattnayak & stockmin3r0
+ *
+ * - https://github.com/DarryCrucian
+ * - https://github.com/stockmin3r
+ */
+
 require('dotenv').config();
 const Discord      = require('discord.js');
 const bot          = new Discord.Client({ intents: [
