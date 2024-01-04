@@ -1,5 +1,5 @@
 /*
- * Written by Aryaman Pattnayak & stockmin3r0
+ * Written by Aryaman Pattnayak & stockmin3r
  *
  * - https://github.com/DarryCrucian
  * - https://github.com/stockmin3r
