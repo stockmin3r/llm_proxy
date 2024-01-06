@@ -14,8 +14,14 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#define MAXEVENTS   512
-#define PANDA_PORT 8484
+#define CONFIG_FILE     "config.ini"
+#define MAX_CONFIG_LINE 1024
+
+#define MAXEVENTS       512
+#define PANDA_PORT      8484
+
+#define EVENT_READ      EPOLLIN
+#define EVENT_WRITE     EPOLLOUT
 
 pthread_mutex_t thread_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -42,6 +48,7 @@ struct thread {
 	char           **usernames;       // keep track of usernames and assign a user to a single thread so that they keep the same context
 	int              nr_users;        // number of usernames assigned to this chat model context
 	int              busy;
+	int              discord_fd;      // the socket that panda.js is connected to - used to write() the tokens to
 };
 
 static struct thread **threads;
@@ -117,128 +124,109 @@ void event_mod(struct connection *connection)
 	epoll_ctl(connection->event.event_fd, EPOLL_CTL_MOD, connection->fd, &event);
 }
 
-void event_add(int epoll_fd, int fd)
+void event_add(int epoll_fd, int event_type, int fd)
 {
 	struct epoll_event event;
-	event.events   = 0;
+	event.events   = event_type;
 	event.data.ptr = NULL;
 	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event);
 }
 
-void event_del(struct connection *connection)
+void event_del(int epoll_fd, int event_type, int fd)
 {
 	struct epoll_event event;
-	event.events   = 0;
+	event.events   = event_type;
 	event.data.ptr = NULL;
-	epoll_ctl(connection->event.event_fd, EPOLL_CTL_DEL, connection->fd, &event);
+	epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &event);
 }
 
-void panda_get_tokens(int fd)
+char *panda_get_token(int fd)
 {
 	char buf[256];
 	int nbytes;
 
 	nbytes = read(fd, buf, sizeof(buf)-1);
-	printf("nbytes: %d\n", nbytes);
 	if (nbytes <= 0)
-		return;
+		return NULL;
+	buf[nbytes] = 0;
 	printf("buf: %s\n", buf);
+	return strdup(buf);
 }
 
-void load_config()
-{
-	char config_buf[8192];
-	char *p;
-	int  fd, nbytes;
+void load_config() {
+    FILE *config_file = fopen(CONFIG_FILE, "r");
+    if (!config_file) {
+        perror("Failed to open config.ini");
+        exit(EXIT_FAILURE);
+    }
 
-	fd = open("config.ini", O_RDONLY);
-	if (fd < 0) {
-		printf("config.ini is missing\n");
-		exit(-1);
-	}
-	nbytes = read(fd, config_buf, sizeof(config_buf)-1);
-	if (nbytes <= 0)
-		exit(-1);
-	config_buf[nbytes] = 0;
+    char line[MAX_CONFIG_LINE];
+    while (fgets(line, sizeof(line), config_file)) {
+        char *key = strtok(line, "=");
+        char *value = strtok(NULL, "\n");
 
-	p = strstr(config_buf, "nr_model_instances");
-	if (p) {
-		p = strchr(p, '=');
-		if (p) {
-			p++;
-			while (*p == ' ') p++;
-		}
-		config.nr_model_instances = atoi(p);
-	}
+        if (key && value) {
+            if (strcmp(key, "nr_model_instances") == 0) {
+                config.nr_model_instances = atoi(value);
+            } else if (strcmp(key, "panda_port") == 0) {
+                config.panda_port = atoi(value);
+            } else if (strcmp(key, "model") == 0) {
+                config.model = strdup(value);
+            }
+        }
+    }
+    fclose(config_file);
+}
 
-	p = strstr(config_buf, "panda_port");
-	if (p) {
-		p = strchr(p, '=');
-		if (p) {
-			p++;
-			while (*p == ' ') p++;
-		}
-		config.panda_port = atoi(p);
+void cleanup() {
+	for (int x = 0; x < config.nr_model_instances; x++) {
+		free(threads[x]);
 	}
-
-	p = strstr(config_buf, "model=");
-	if (!p)
-		p = strstr(config_buf, "model =");
-	if (p) {
-		p = strchr(p, '=');
-		if (p) {
-			p++;
-			while (*p == ' ') p++;
-		}
-		config.model = strdup(p);
-	}
+	free(threads);
 }
 
 int os_exec_argv(char *argv[], int epoll_fd)
 {
-	const char *envp[] = { "PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin", NULL };
+	const char        *envp[] = { "PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin", NULL };
 	struct epoll_event events[2];
-	char buf[512];
-	int status, pid;
-	int read_pipe[2], write_pipe[2];
+	char               buf[512];
+	int                pipe1[2]; // the pipe between the parent and the child's STDIN
+	int                pipe2[2]; // the pipe between the parent and the child's STDOUT
 
 	// Create two pipes for standard input and output of the child process
-    if (pipe(read_pipe) < 0 || pipe(write_pipe) < 0) {
+    if (pipe(pipe1) < 0 || pipe(pipe2) < 0) {
         perror("Failed to create pipes");
         exit(EXIT_FAILURE);
     }
 
-	switch ((pid=fork())) {
+	/*
+	 * child  reads from pipe1[0], parent writes to pipe1[1]
+	 * parent reads from pipe2[0], child  writes to pipe2[1]
+	 */
+	switch (fork()) {
 		case -1:
 			exit(-1);
 		case 0:
-	        close(read_pipe[1]);
-	        dup2(read_pipe[0], STDIN_FILENO);
-	        close(read_pipe[0]);
-	        
-	        close(write_pipe[0]);
-	        dup2(write_pipe[1], STDOUT_FILENO);
-	        close(write_pipe[1]);
-
+			/* Replace stdin with the read end of pipe1 and replace stdout with the write end of pipe2 */
+			close(pipe1[1]);
+			dup2(pipe1[0], STDIN_FILENO);
+			close(pipe1[0]);
+			close(pipe2[0]);
+			dup2(pipe2[1], STDOUT_FILENO);
+	        close(pipe2[1]);
 			execve(argv[0], argv, (char **)envp);
 			exit(-1);
 		default:
-	        events[0].events  = EPOLLOUT;
-	        events[0].data.fd = write_pipe[1];
-	        events[1].events = EPOLLIN;
-	        events[1].data.fd = read_pipe[0];
-	        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, 	write_pipe[1], &events[0]) == -1) {
+			/* Register with epoll for events on the read end of pipe2 (the child's STDOUT) */
+	        events[0].events  = EPOLLIN;
+	        events[0].data.fd = pipe2[0];
+	        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, 	pipe2[0], &events[0]) == -1) {
 	            perror("Failed to add write end of pipe to epoll instance");
 	            exit(EXIT_FAILURE);
 	        }
-	        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, read_pipe[0], &events[1]) == -1) {
-	            perror("Failed to add read end of pipe to epoll instance");
-	            exit(EXIT_FAILURE);
-			}
-			return write_pipe[1];
+			return pipe1[1];
 	}
 }
-
 
 void *panda_thread(void *args)
 {
@@ -246,15 +234,19 @@ void *panda_thread(void *args)
 	struct epoll_event  panda_events;
 	struct epoll_event *events, *event;
 	char                chatbuf[4096];
+	char               *token;
 	char               *argv[] = { "/usr/src/ai/llama.cpp/main",  "--log-disable", "-m", "/usr/src/ai/llama.cpp/openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--color", "--interactive-first", NULL };
 	int                 nr_events, fd, epoll_fd, chat_fd, nbytes;
 
 	// open epoll descriptor on the parent thread
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 
-	// fork/execve llama.cpp/main and wait for questions from panda.js which will be written to the child's stdin
+	/* 
+	 * fork/execve llama.cpp/main and wait for questions from panda.js which will be written to the child's stdin
+	 * chat_fd is the child's standard output and epoll will be used to monitor when tokens are being written to it
+	 */
 	chat_fd = os_exec_argv(argv, epoll_fd);
-	event_add(epoll_fd, chat_fd);
+	event_add(epoll_fd, EVENT_READ, chat_fd);
 
 	events = (struct epoll_event *)malloc(sizeof(*events) * MAXEVENTS);	
 	while (1) {
@@ -263,7 +255,8 @@ void *panda_thread(void *args)
 		 */
 		pthread_mutex_lock(&thread->qwait_mutex);
 		pthread_cond_wait(&thread->qwait_condition, &thread->qwait_mutex);
-		printf("woken up thread\n");
+
+		/* write the question to the llama chat program's standard input descriptor */
 		write(chat_fd, thread->query->question, strlen(thread->query->question));				
 
 		while (1) {
@@ -272,8 +265,14 @@ void *panda_thread(void *args)
 				event = &events[x];
 				fd    = event->data.fd;
 				if (event->events & EPOLLIN) {
-					panda_get_tokens(event->data.fd);
-				} else {
+					/*
+					 * llama.cpp is writing tokens to its stdout, read the tokens and send them to the discord bot
+					 */
+					token = panda_get_token(event->data.fd);
+					if (!token)
+						continue;
+					write(thread->discord_fd, token, strlen(token));
+				} else if (event->events & EPOLLRDHUP) {
 					close(event->data.fd);
 					break;
 				}
@@ -289,14 +288,15 @@ int main()
 	struct query       *query;
 	char                question_buf[4096];
 	pthread_t           tid;
-	int                 panda_server_fd, client_fd, nbytes, client_addr_len, nr_threads = 2;
+	int                 panda_server_fd, client_fd, nbytes, client_addr_len, nr_threads;
 
 	load_config();
 	printf("nr models: %d\n", config.nr_model_instances);
-	printf("port: %d\n", config.panda_port);
-	printf("model: %s\n", config.model);
+	printf("port: %d\n",      config.panda_port);
+	printf("model: %s\n",     config.model);
 
-	threads = malloc(sizeof(struct thread) * nr_threads);
+	nr_threads = config.nr_model_instances;
+	threads    = malloc(sizeof(struct thread) * nr_threads);
 
 	for (int x = 0; x<nr_threads; x++) {
 		struct thread *thread = malloc(sizeof(*thread));
@@ -311,17 +311,24 @@ int main()
 	while (1) {
 		client_fd = accept(panda_server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		nbytes    = read(client_fd, question_buf, sizeof(question_buf)-1);
-		printf("question: %s\n", question_buf);
+		if (nbytes <= 0) {
+			perror("Failed to read question from client");
+			close(client_fd);
+			continue;
+		}
 		query     = malloc(sizeof(*query));
 		query->question = strdup(question_buf);
 		pthread_mutex_lock(&thread_lock);
+		printf("question: %s\n", question_buf);
 		for (int x = 0; x<nr_threads; x++) {
 			if (!threads[x]->busy) {
 				threads[x]->busy  = 1;
 				threads[x]->query = query;
+				threads[x]->discord_fd = client_fd;
 				pthread_cond_signal(&threads[x]->qwait_condition);
 				break;
 			}
 		}
+		pthread_mutex_unlock(&thread_lock);
 	}
 }

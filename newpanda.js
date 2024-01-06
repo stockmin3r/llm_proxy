@@ -1,7 +1,11 @@
+require('dotenv').config();
+
 const Discord = require('discord.js');
 const { TFAutoModelForQuestionAnswering, AutoTokenizer } = require('@huggingface/node-transformers');
-const fs = require('fs');
-const ini = require('ini');
+const fs    = require('fs');
+const net   = require('net');
+const ini   = require('ini');
+const TOKEN = process.env.TOKEN;
 
 class PandaBot {
   constructor() {
@@ -15,17 +19,17 @@ class PandaBot {
     });
 
     // Load configurations from config.ini
-    this.config = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
+    this.config          = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
     this.allowedChannels = this.config.channels.split(',');
-    this.pandaPort = parseInt(this.config.server.panda_port);
-    this.currentModel = this.config.models.model;
+    this.pandaPort       = parseInt(this.config.server.panda_port);
+    this.currentModel    = this.config.models.model;
 
     // Bind event handlers
     this.client.on('ready', this.onReady.bind(this));
     this.client.on('messageCreate', this.onMessageCreate.bind(this));
 
     // Log in to Discord with the bot token
-    this.client.login('YOUR_BOT_TOKEN');
+    this.client.login(TOKEN);
   }
 
   async switchModel(newModel) {
@@ -47,11 +51,11 @@ class PandaBot {
       });
 
       // Bind event handlers to the new client
-      this.client.on('ready', this.onReady.bind(this));
+      this.client.on('ready',         this.onReady.bind(this));
       this.client.on('messageCreate', this.onMessageCreate.bind(this));
 
       // Log in to Discord with the new bot token
-      await this.client.login('YOUR_BOT_TOKEN');
+      await this.client.login(TOKEN);
 
       console.log('Model switched successfully.');
     } catch (error) {
@@ -95,7 +99,7 @@ class PandaBot {
       }
 
       // Check if the message contains the specified command
-      if (msg.content.startsWith('$ANSWER_QUESTION')) {
+      if (msg.content.startsWith('panda:')) {
         const [_, question, context] = msg.content.split(' ');
         const answer = await this.answerQuestion(question, context);
         msg.reply(`Answer: ${answer}`);
