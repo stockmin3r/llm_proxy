@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 const Discord = require('discord.js');
-const { TFAutoModelForQuestionAnswering, AutoTokenizer } = require('@huggingface/node-transformers');
+const { TFAutoModelForQuestionAnswering, AutoTokenizer } = require('node-transformers');
 const fs    = require('fs');
 const net   = require('net');
 const ini   = require('ini');
