@@ -28,7 +28,7 @@ struct config {
 	unsigned short panda_port;          // localhost port for the discord bot to connect to
 };
 
-static struct config config;
+static struct config  config;
 
 struct query {
 	char     *question;
@@ -36,10 +36,15 @@ struct query {
 };
 
 struct thread {
-	pthread_cond_t qwait_condition; // thread will wait until a question is asked
-	struct query  *query;
-	int            busy;
+	pthread_cond_t   qwait_condition; // thread will wait until a question is asked
+	pthread_mutex_t  qwait_mutex;
+	struct query    *query;
+	char           **usernames;       // keep track of usernames and assign a user to a single thread so that they keep the same context
+	int              nr_users;        // number of usernames assigned to this chat model context
+	int              busy;
 };
+
+static struct thread **threads;
 
 struct event {
 	event_fd_t    event_fd;
@@ -128,29 +133,6 @@ void event_del(struct connection *connection)
 	epoll_ctl(connection->event.event_fd, EPOLL_CTL_DEL, connection->fd, &event);
 }
 
-void os_exec_argv(char *argv[], int epoll_fd)
-{
-	const char *envp[] = { "PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin", NULL };
-	char buf[512];
-	int status, pid;
-	int pfd[2];
-	int epoll_dup = dup2(epoll_fd, -1);
-
-	pipe(pfd);        
-	switch ((pid=fork())) {
-		case 0:
-			close(pfd[0]);
-			dup2(pfd[1], 1);
-			dup2(pfd[1], 2);
-			close(pfd[1]);
-			execve(argv[0], argv, (char **)envp);
-			exit(-1);
-		default:
-			close(epoll_dup);
-			event_add(epoll_fd, pfd[0]);
-	}
-}
-
 void panda_get_tokens(int fd)
 {
 	char buf[256];
@@ -212,26 +194,78 @@ void load_config()
 	}
 }
 
+int os_exec_argv(char *argv[], int epoll_fd)
+{
+	const char *envp[] = { "PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin", NULL };
+	struct epoll_event events[2];
+	char buf[512];
+	int status, pid;
+	int read_pipe[2], write_pipe[2];
+
+	// Create two pipes for standard input and output of the child process
+    if (pipe(read_pipe) < 0 || pipe(write_pipe) < 0) {
+        perror("Failed to create pipes");
+        exit(EXIT_FAILURE);
+    }
+
+	switch ((pid=fork())) {
+		case -1:
+			exit(-1);
+		case 0:
+	        close(read_pipe[1]);
+	        dup2(read_pipe[0], STDIN_FILENO);
+	        close(read_pipe[0]);
+	        
+	        close(write_pipe[0]);
+	        dup2(write_pipe[1], STDOUT_FILENO);
+	        close(write_pipe[1]);
+
+			execve(argv[0], argv, (char **)envp);
+			exit(-1);
+		default:
+	        events[0].events  = EPOLLOUT;
+	        events[0].data.fd = write_pipe[1];
+	        events[1].events = EPOLLIN;
+	        events[1].data.fd = read_pipe[0];
+	        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, 	write_pipe[1], &events[0]) == -1) {
+	            perror("Failed to add write end of pipe to epoll instance");
+	            exit(EXIT_FAILURE);
+	        }
+	        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, read_pipe[0], &events[1]) == -1) {
+	            perror("Failed to add read end of pipe to epoll instance");
+	            exit(EXIT_FAILURE);
+			}
+			return write_pipe[1];
+	}
+}
+
+
 void *panda_thread(void *args)
 {
 	struct thread      *thread = (struct thread *)args;
 	struct epoll_event  panda_events;
 	struct epoll_event *events, *event;
-	char               *argv[] = { "../llama.cpp/main",  "--log-disable", "-m", "../llama.cpp/openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--color", "--interactive-first", NULL };
-	int                 nr_events, fd, epoll_fd;
+	char                chatbuf[4096];
+	char               *argv[] = { "/usr/src/ai/llama.cpp/main",  "--log-disable", "-m", "/usr/src/ai/llama.cpp/openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--color", "--interactive-first", NULL };
+	int                 nr_events, fd, epoll_fd, chat_fd, nbytes;
 
 	// open epoll descriptor on the parent thread
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 
-	os_exec_argv(argv, epoll_fd);
+	// fork/execve llama.cpp/main and wait for questions from panda.js which will be written to the child's stdin
+	chat_fd = os_exec_argv(argv, epoll_fd);
+	event_add(epoll_fd, chat_fd);
 
 	events = (struct epoll_event *)malloc(sizeof(*events) * MAXEVENTS);	
 	while (1) {
 		/*
 		 * Await new questions from panda.js (via main())
 		 */
-		
-		
+		pthread_mutex_lock(&thread->qwait_mutex);
+		pthread_cond_wait(&thread->qwait_condition, &thread->qwait_mutex);
+		printf("woken up thread\n");
+		write(chat_fd, thread->query->question, strlen(thread->query->question));				
+
 		while (1) {
 			nr_events = epoll_wait(epoll_fd, events, MAXEVENTS, -1);
 			for (int x = 0; x<nr_events; x++) {
@@ -248,14 +282,14 @@ void *panda_thread(void *args)
 	}
 }
 
+
 int main()
 {
 	struct sockaddr_in  client_addr;
 	struct query       *query;
-	struct thread      *threads;
 	char                question_buf[4096];
 	pthread_t           tid;
-	int                 panda_server_fd, client_fd, nbytes, client_addr_len, nr_threads = 4;
+	int                 panda_server_fd, client_fd, nbytes, client_addr_len, nr_threads = 2;
 
 	load_config();
 	printf("nr models: %d\n", config.nr_model_instances);
@@ -268,6 +302,8 @@ int main()
 		struct thread *thread = malloc(sizeof(*thread));
 		memset(thread, 0, sizeof(*thread));
 		memset(&thread->qwait_condition, 0, sizeof(pthread_cond_t));
+		memset(&thread->qwait_mutex, 0, sizeof(pthread_mutex_t));
+		threads[x] = thread;
 		pthread_create(&tid, NULL, panda_thread, thread);
 	}
 
@@ -276,14 +312,15 @@ int main()
 		client_fd = accept(panda_server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		nbytes    = read(client_fd, question_buf, sizeof(question_buf)-1);
 		printf("question: %s\n", question_buf);
-		query  = malloc(sizeof(*query));
+		query     = malloc(sizeof(*query));
 		query->question = strdup(question_buf);
 		pthread_mutex_lock(&thread_lock);
 		for (int x = 0; x<nr_threads; x++) {
-			if (!threads[x].busy) {
-				threads[x].busy  = 1;
-				threads[x].query = query;
-				pthread_cond_signal(&threads[x].qwait_condition);
+			if (!threads[x]->busy) {
+				threads[x]->busy  = 1;
+				threads[x]->query = query;
+				pthread_cond_signal(&threads[x]->qwait_condition);
+				break;
 			}
 		}
 	}
