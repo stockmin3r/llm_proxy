@@ -38,7 +38,9 @@ static struct config  config;
 
 struct query {
 	char     *question;
+	char     *id;                     // question ID (used by discord.js to lookup the message object)
 	char     *answer;
+	int       nr_tokens;              // current number of tokens
 };
 
 struct thread {
@@ -151,6 +153,15 @@ char *panda_get_token(int fd)
 	buf[nbytes] = 0;
 	printf("buf: %s\n", buf);
 	return strdup(buf);
+}
+
+void panda_send_token(char *token, char *query_id, int discord_fd)
+{
+	char msg[2048];
+	int  msg_size;
+
+	msg_size = snprintf(msg, sizeof(msg)-1, "%s %s", query_id, token);
+	send(discord_fd, msg, msg_size, 0);
 }
 
 void load_config() {
@@ -271,7 +282,8 @@ void *panda_thread(void *args)
 					token = panda_get_token(event->data.fd);
 					if (!token)
 						continue;
-					write(thread->discord_fd, token, strlen(token));
+					thread->query->nr_tokens++;
+					panda_send_token(token, thread->query->id, thread->discord_fd);
 				} else if (event->events & EPOLLRDHUP) {
 					close(event->data.fd);
 					break;
@@ -281,6 +293,19 @@ void *panda_thread(void *args)
 	}
 }
 
+struct query *new_query(char *question)
+{
+	struct query *query = malloc(sizeof(*query));
+	char         *p     = strchr(question, ' ');
+
+	if (!p)
+		return NULL;
+	*p++ = 0;
+
+	query->question = strdup(p);
+	query->id       = strdup(question);
+	return (query);
+}
 
 int main()
 {
@@ -316,14 +341,15 @@ int main()
 			close(client_fd);
 			continue;
 		}
-		query     = malloc(sizeof(*query));
-		query->question = strdup(question_buf);
-		pthread_mutex_lock(&thread_lock);
+		query = new_query(question_buf);
+		if (!query)
+			continue;
 		printf("question: %s\n", question_buf);
+		pthread_mutex_lock(&thread_lock);
 		for (int x = 0; x<nr_threads; x++) {
 			if (!threads[x]->busy) {
-				threads[x]->busy  = 1;
-				threads[x]->query = query;
+				threads[x]->busy       = 1;
+				threads[x]->query      = query;
 				threads[x]->discord_fd = client_fd;
 				pthread_cond_signal(&threads[x]->qwait_condition);
 				break;

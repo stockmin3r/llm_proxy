@@ -6,28 +6,52 @@
  */
 
 require('dotenv').config();
-const Discord      = require('discord.js');
-const bot          = new Discord.Client({ intents: [
-  Discord.GatewayIntentBits.Guilds,
-  Discord.GatewayIntentBits.GuildMessages,
-  Discord.GatewayIntentBits.DirectMessages,
-  Discord.GatewayIntentBits.GuildBans,
-  Discord.GatewayIntentBits.MessageContent,
+const {Client,GatewayIntentBits,Discord,Partials} = require('discord.js');
+const bot          = new Client({
+intents: [
+	GatewayIntentBits.Guilds,
+	GatewayIntentBits.GuildMessages,
+	GatewayIntentBits.DirectMessages,
+	GatewayIntentBits.GuildBans,
+	GatewayIntentBits.MessageContent,
+],
+partials: [
+	Partials.Channel,
+	Partials.Message
 ]});
-const TOKEN        = process.env.TOKEN;
-const fs           = require('fs');
-const request      = require('request');
+const TOKEN           = process.env.TOKEN;
+const fs              = require('fs');
+const net             = require('net');
+const ini             = require('ini');
+const request         = require('request');
+
+const config          = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
+const allowedChannels = config.channels.channels.split(',');
+const QID             = size => [...Array(16)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
+
+var   question_list   = [];
+var   main_channel;
+
+var   panda_proxy_socket = net.createConnection({port:config.server.panda_port});
+panda_proxy_socket.on('data', function(data) {
+	message = question_list.find(x => x.id == data.toString().split(" ")[0]);
+	console.log("msg: " + JSON.stringify(message));
+//	main_channel = message.guild.channels.cache.find(channel => channel.name === "general");
+	msg = data.toString().split(" ")[1];
+	if (msg == "\n" || msg == "")
+		return;
+	main_channel.send(msg);
+});
 
 bot.login(TOKEN);
 bot.on('ready', () => {
 	console.info(`Logged in as ${bot.user.tag}!`);
 //	bot.channels.cache.get("1171834979936911443").send("Panda is uncensored - Ask panda anything!");
-	const config = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
-	const allowedChannels = config.channels.split(',');
+	console.log(allowedChannels.length);
 });
 
 function extractUrlFromCommand(command) {
-    const urlRegex = /\$\((DOWNLOAD_URL\((.*?)\))\)/;
+    const urlRegex = /\$\((CURL\((.*?)\))\)/;
     const match = command.match(urlRegex);
     return match ? match[2] : null;
 }
@@ -61,19 +85,24 @@ function convertHtmlTableToCsv(html) {
     return csv.join('\n');
 }
 
+function panda_ask_question(message)
+{
+	var question = {message:message, id:QID()};
+	question_list.push(question);
+	panda_proxy_socket.write(question.id + " " + question.message.content + "\n");
+	console.log("panda_ask_question: " + question.id + " " + question.message.content);
+}
+
 /*
  * Message Handler
  */
-bot.on('messageCreate', msg => {
-	var argv = "";
-
-	main_channel = msg.guild.channels.cache.find(channel => channel.name === "general");
-	if (msg.author.bot)
+bot.on('messageCreate', message => {
+	main_channel = message.guild.channels.cache.find(channel => channel.name === "general");
+	console.log("msg");
+	if (message.author.bot)
 		return;
 
-	console.log(msg.content);
-	argv = msg.content.slice().trim().split(/ +/g);
-	if (msg.content.startsWith('panda:')) {
-		panda_msg(msg.content);
+	if (message.content.startsWith('panda:')) {
+		panda_ask_question(message);
 	}
 });

@@ -20,7 +20,7 @@ class PandaBot {
 
     // Load configurations from config.ini
     this.config          = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
-    this.allowedChannels = this.config.channels.split(',');
+    this.allowedChannels = this.config.channels.channels.split(',');
     this.pandaPort       = parseInt(this.config.server.panda_port);
     this.currentModel    = this.config.models.model;
 
