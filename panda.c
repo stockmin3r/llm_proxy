@@ -262,7 +262,7 @@ void *panda_thread(void *args)
 	events = (struct epoll_event *)malloc(sizeof(*events) * MAXEVENTS);	
 	while (1) {
 		/*
-		 * Await new questions from panda.js (via main())
+		 * Wait for new questions from panda.js (via main())
 		 */
 		pthread_mutex_lock(&thread->qwait_mutex);
 		pthread_cond_wait(&thread->qwait_condition, &thread->qwait_mutex);
@@ -333,13 +333,13 @@ int main()
 	}
 
 	panda_server_fd = net_tcp_bind(inet_addr("127.0.0.1"), config.panda_port);
+	client_fd       = accept(panda_server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 	while (1) {
-		client_fd = accept(panda_server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
-		nbytes    = read(client_fd, question_buf, sizeof(question_buf)-1);
+		nbytes = read(client_fd, question_buf, sizeof(question_buf)-1);
 		if (nbytes <= 0) {
 			perror("Failed to read question from client");
 			close(client_fd);
-			continue;
+			exit(-1);
 		}
 		query = new_query(question_buf);
 		if (!query)

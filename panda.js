@@ -33,14 +33,35 @@ var   question_list   = [];
 var   main_channel;
 
 var   panda_proxy_socket = net.createConnection({port:config.server.panda_port});
+
+/*
+ * Recieve answers from panda.c and send them to the channel the question was asked in (or DM)
+ */
 panda_proxy_socket.on('data', function(data) {
-	message = question_list.find(x => x.id == data.toString().split(" ")[0]);
-	console.log("msg: " + JSON.stringify(message));
-//	main_channel = message.guild.channels.cache.find(channel => channel.name === "general");
-	msg = data.toString().split(" ")[1];
-	if (msg == "\n" || msg == "")
+	var question = question_list.find(x => x.id == data.toString().split(" ")[0]);
+	var message  = question.message;
+
+	var token = data.toString().split(" ")[1];
+	if (token == "\n") {
+		question.newline = "\n";
 		return;
-	main_channel.send(msg);
+	}
+
+	if (token == "")
+		return;
+
+	if (question.answer) {
+		question.answer_content += token;
+		question.answer.edit({content:question.answer_content});
+		console.log("current: " + question.answer_content);
+	} else {
+		question.channel.send(question.newline + token).then((sentMessage) => {
+			question.answer = sentMessage;
+			console.log("ANSWER: " + question.answer.content);
+			question.answer_content = sentMessage.content;
+		});
+	}
+	question.newline = "";
 });
 
 bot.login(TOKEN);
@@ -85,9 +106,9 @@ function convertHtmlTableToCsv(html) {
     return csv.join('\n');
 }
 
-function panda_ask_question(message)
+function panda_ask_question(message, channel)
 {
-	var question = {message:message, id:QID()};
+	var question = {message:message, id:QID(), edit:false, channel: channel};
 	question_list.push(question);
 	panda_proxy_socket.write(question.id + " " + question.message.content + "\n");
 	console.log("panda_ask_question: " + question.id + " " + question.message.content);
@@ -97,12 +118,14 @@ function panda_ask_question(message)
  * Message Handler
  */
 bot.on('messageCreate', message => {
-	main_channel = message.guild.channels.cache.find(channel => channel.name === "general");
-	console.log("msg");
+	var channel;
+
 	if (message.author.bot)
 		return;
 
-	if (message.content.startsWith('panda:')) {
-		panda_ask_question(message);
-	}
+	if (message.guild.channels)
+		channel = message.guild.channels.cache.find(channel => channel.name === "general");
+
+	if (message.content.startsWith('panda:'))
+		panda_ask_question(message, channel);
 });
