@@ -67,7 +67,8 @@ class PandaBot {
   async answerQuestion(question, context) {
     try {
       // Load pre-trained model and tokenizer
-      const model = await TFAutoModelForQuestionAnswering.fromPretrained(this.currentModel);
+		console.log("modelL" + " " + this.currentModel);
+      const model = await TFAutoModelForQuestionAnswering.fromPretrained();
       const tokenizer = await AutoTokenizer.fromPretrained(this.currentModel);
 
       // Tokenize the input

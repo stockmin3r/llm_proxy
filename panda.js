@@ -44,23 +44,26 @@ panda_proxy_socket.on('data', function(data) {
 	var token = data.toString().split(" ")[1];
 	if (token == "\n") {
 		question.newline = "\n";
+		question.tokens += "\n";
 		return;
 	}
 
-	if (token == "")
+	if (token == "") {
+		question.tokens += " ";
 		return;
-
+	}
+	question.tokens += token;
 	if (question.answer) {
-		question.answer_content += token;
-		question.answer.edit({content:question.answer_content});
-		console.log("current: " + question.answer_content);
+		question.answer.edit({content:question.tokens});
+		console.log("current: " + question.tokens);
 	} else {
 		question.channel.send(question.newline + token).then((sentMessage) => {
 			question.answer = sentMessage;
-			console.log("ANSWER: " + question.answer.content);
-			question.answer_content = sentMessage.content;
+			console.log("ANSWER: " + question.answer.content, JSON.stringify(sentMessage));
+//			question.answer_content = sentMessage.content;
 		});
 	}
+	console.log("tokens: " + question.tokens);
 	question.newline = "";
 });
 
@@ -108,7 +111,7 @@ function convertHtmlTableToCsv(html) {
 
 function panda_ask_question(message, channel)
 {
-	var question = {message:message, id:QID(), edit:false, channel: channel};
+	var question = {message:message, id:QID(), edit:false, channel: channel, tokens:""};
 	question_list.push(question);
 	panda_proxy_socket.write(question.id + " " + question.message.content + "\n");
 	console.log("panda_ask_question: " + question.id + " " + question.message.content);

@@ -151,7 +151,7 @@ char *panda_get_token(int fd)
 	if (nbytes <= 0)
 		return NULL;
 	buf[nbytes] = 0;
-	printf("buf: %s\n", buf);
+	printf("buf: %s buf[0]: %x nbytes: %d\n", buf, (unsigned char)buf[0], nbytes);
 	return strdup(buf);
 }
 
