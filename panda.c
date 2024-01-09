@@ -264,6 +264,7 @@ void *panda_thread(void *args)
 		/*
 		 * Wait for new questions from panda.js (via main())
 		 */
+		thread->busy = 0;
 		pthread_mutex_lock(&thread->qwait_mutex);
 		pthread_cond_wait(&thread->qwait_condition, &thread->qwait_mutex);
 
