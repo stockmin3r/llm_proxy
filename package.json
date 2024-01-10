@@ -1,0 +1,27 @@
+{
+  "name": "panda",
+  "version": "0.2",
+  "description": "LLM Proxy",
+  "main": "init.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "repository": "https://github.com/stockmin3r/panda",
+  "keywords": [
+    "stockminer"
+  ],
+  "author": "stockminer,Aryaman Pattnayak",
+  "license": "Public Domain",
+  "devDependencies": {
+    "electron": "^27.1.2"
+  }
+  "dependencies": {
+    "@xenova/transformers": "^2.13.4",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "net": "^1.0.2",
+    "node-transformers": "^0.0.0",
+    "request": "^2.88.2"
+  }
+}
+
