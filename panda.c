@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -28,30 +29,40 @@
 #pragma comment(lib, "Ws2_32.lib")
 #endif
 
-#define CONFIG_FILE     "config.ini"
-#define MAX_CONFIG_LINE 1024
-
-#define MAXEVENTS       512
-#define PANDA_PORT      8484
+#define CONFIG_FILE           "config.ini"
+#define MAX_CONFIG_LINE       1024
+#define MAXEVENTS             512
+#define PANDA_PORT            8484
+#define LOCALHOST             0x0100007F
 
 #ifdef __LINUX__
-#define PEVENT_READ      EPOLLIN
-#define PEVENT_WRITE     EPOLLOUT
+#define PEVENT_READ           EPOLLIN
+#define PEVENT_WRITE          EPOLLOUT
 #endif
 
-
 #ifdef __LINUX__
-typedef int socket_t;
+typedef int                   socket_t;
+typedef int                   pipe_t;
+typedef pthread_mutex_t       mutex_t;
+typedef pthread_cond_t        condition_t;
+#define mutex_lock(mtx)       pthread_mutex_lock  (mtx)
+#define mutex_unlock(mtx)     pthread_mutex_unlock(mtx)
 #endif
 
 #ifdef __WINDOWS__
-typedef SOCKET socket_t;
-#define SOCK_CLOEXEC 0
-#define mutex_t HANDLE
+typedef SOCKET                socket_t;
+typedef HANDLE                pipe_t;
+#define SOCK_CLOEXEC          0
+#define condition_t           HANDLE
+#define mutex_t               CRITICAL_SECTION
+#define in_addr_t             struct in_addr
 #endif
 
-typedef int                event_fd_t;
-typedef unsigned int       uint32_t;
+typedef int                   event_fd_t;
+typedef unsigned int          uint32_t;
+
+char *index_html;
+int   index_html_size;
 
 struct config {
 	char          *model;               // model filename
@@ -75,8 +86,8 @@ struct query {
 };
 
 struct thread {
-	pthread_cond_t   qwait_condition; // thread will wait until a question is asked
-	pthread_mutex_t  qwait_mutex;
+	condition_t      qwait_condition; // thread will wait until a question is asked
+	mutex_t          qwait_mutex;     // mutex for the wait condition (CRITICAL_SECTION on windows, pthread_cond_t on linux)
 	struct query    *query;
 	char           **usernames;       // keep track of usernames and assign a user to a single thread so that they keep the same context
 	int              nr_users;        // number of usernames assigned to this chat model context
@@ -101,16 +112,18 @@ struct connection {
 /* threads/synchronization */
 void thread_create(void *(*thread)(void *), void *args)
 {
-        void *TID;
-        TID = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)thread, args, 0, NULL);
+	void *TID;
+	TID = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)thread, args, 0, NULL);
 }
-void mutex_lock(mutex_t mtx)
+
+void mutex_lock(mutex_t *mtx)
 {
-        WaitForSingleObject(mtx, INFINITE);
+	EnterCriticalSection(mtx);
 }
-void mutex_unlock(mutex_t mtx)
+
+void mutex_unlock(mutex_t *mtx)
 {
-        ReleaseMutex(mtx);
+	LeaveCriticalSection(mtx);
 }
 
 /* networking */
@@ -119,6 +132,7 @@ void net_socket_block(socket_t sockfd)
 	DWORD nb = 1;
 	ioctlsocket(sockfd, FIONBIO, &nb);
 }
+
 void net_socket_nonblock(socket_t sockfd)
 {
 	DWORD nb = 0;
@@ -130,41 +144,76 @@ void thread_wait(struct thread *thread)
 	WaitForSingleObject(&thread->qwait_condition, INFINITE);
 }
 
-void os_exec(char *argv[], int *child_stdin, int *child_stdout)
+void thread_signal(struct thread *thread)
+{
+	EnterCriticalSection(&thread->qwait_mutex);
+	SetEvent(thread->qwait_condition);
+	LeaveCriticalSection(&thread->qwait_mutex);
+}
+
+void write_pipe(pipe_t stdin_pipe, char *question)
+{
+	DWORD dwWritten;
+
+	WriteFile(stdin_pipe, question, strlen(question), &dwWritten, NULL);
+}
+
+void llm_proxy(pipe_t *child_stdin, pipe_t *child_stdout)
 {
     STARTUPINFO         start_info = { sizeof(start_info) };
     PROCESS_INFORMATION process_info;
-    HANDLE              read_pipe[2];
+	SECURITY_ATTRIBUTES saAttr;
+	pipe_t              stdin_READ  = NULL,  stdin_WRITE = NULL;
+	pipe_t              stdout_READ = NULL, stdout_WRITE = NULL;
+	char                cmdLine[256];
 
-    if (!CreatePipe(read_pipe, NULL, NULL, 0))
-        return;
+	saAttr.nLength              = sizeof(SECURITY_ATTRIBUTES); 
+	saAttr.bInheritHandle       = TRUE; 
+	saAttr.lpSecurityDescriptor = NULL; 
 
-    // Create a STARTUPINFO struct and set the standard output to the write end of the pipe
-    start_info.dwFlags   |= STARTF_USESTDHANDLES;
-    start_info.hStdOutput = read_pipe[1];
+	// Create a pipe for the child process's STDIN
+	if (!CreatePipe(&stdin_READ, &stdin_WRITE, &saAttr, 0))
+		exit(-1);
+
+	// Create a pipe for the child process's STDOUT
+	if (!CreatePipe(&stdout_READ, &stdout_WRITE, &saAttr, 0))
+		exit(-1);
+
+	// Ensure the write handle to the pipe for STDIN is not inherited.  
+	if (!SetHandleInformation(stdin_WRITE, HANDLE_FLAG_INHERIT, 0))
+		exit(-1);
+
+	// Ensure the read handle to the pipe for STDOUT is not inherited
+	if (!SetHandleInformation(stdout_READ, HANDLE_FLAG_INHERIT, 0))
+		exit(-1);
+
+	// Create a STARTUPINFO struct and set the standard output to stdout_WRITE and stdin to stdin_READ
+	ZeroMemory(&start_info, sizeof(STARTUPINFO));
+	start_info.cb         = sizeof(STARTUPINFO); 
+	start_info.hStdError  = stdout_WRITE;
+	start_info.hStdOutput = stdout_WRITE;
+	start_info.hStdInput  = stdin_READ;
+	start_info.dwFlags   |= STARTF_USESTDHANDLES;
+
+	// keep track of main.exe's STDIN/STDOUT
+	*child_stdin  = stdout_READ;
+	*child_stdout = stdin_WRITE;
 
     // Create a new process that reads from the pipe and writes to the standard output
-    if (!CreateProcess(NULL, "c:\\ai\\llamacpp\\main.exe", NULL, NULL, TRUE, 0, NULL, NULL, &start_info, &process_info)) {
-        CloseHandle(read_pipe[0]);
-        return;
-    }
+	snprintf(cmdLine, sizeof(cmdLine)-1, "main.exe --interactive-first -m %s", config.model);
+	if (!CreateProcessA("c:\\ai\\llamacpp\\main.exe", cmdLine, NULL, NULL, TRUE, 0, NULL, NULL, &start_info, &process_info))
+		exit(-1);
 
-    // Read from the pipe and print the output
-    char  buffer[128];
-    DWORD bytes_read;
-    while (TRUE) {
-        if (!ReadFile(read_pipe[0], buffer, sizeof(buffer), &bytes_read, NULL)) {
-            break;
-        }
-    }
-
-    // Close the pipe and wait for the child process to exit
-    CloseHandle(read_pipe[0]);
-    WaitForSingleObject(process_info.hProcess, INFINITE);
-    CloseHandle(process_info.hProcess);
-    CloseHandle(process_info.hThread);
+	CloseHandle(stdout_WRITE);
+	CloseHandle(stdin_READ);
 }
 
+void init_os()
+{
+	WSADATA wsaData;
+	WORD    versionRequested = MAKEWORD(2, 2);
+	WSAStartup(versionRequested, &wsaData);
+}
 #endif
 
 #ifdef __LINUX__
@@ -204,18 +253,35 @@ void thread_wait(struct thread *thread)
 	pthread_cond_wait(&thread->qwait_condition, &thread->qwait_mutex);
 }
 
-void os_exec(char *argv[], int *child_stdin, int *child_stdout)
+/* Wake up thread driving llamacpp's main.exe */
+void thread_signal(struct thread *thread)
 {
+	pthread_cond_signal(&thread->qwait_condition);
+}
+
+void thread_create(void *(*thread)(void *), void *args)
+{
+	pthread_t tid;
+	pthread_create(&tid, NULL, thread, args);
+	pthread_detach(tid);
+}
+
+void write_pipe(pipe_t stdin_pipe, char *question)
+{
+	write(stdin_pipe, question, strlen(question));
+}
+
+void llm_proxy(pipe_t *child_stdin, pipe_t *child_stdout)
+{
+	char              *argv[] = { "/usr/src/ai/llama.cpp/main",  "--log-disable", "-m", config.model, "--color", "--interactive-first", NULL };
 	const char        *envp[] = { "PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin", NULL };
 	char               buf[512];
 	int                pipe1[2]; // the pipe between the parent and the child's STDIN
 	int                pipe2[2]; // the pipe between the parent and the child's STDOUT
 
 	// Create two pipes for standard input and output of the child process
-    if (pipe(pipe1) < 0 || pipe(pipe2) < 0) {
-        perror("Failed to create pipes");
-        exit(EXIT_FAILURE);
-    }
+    if (pipe(pipe1) < 0 || pipe(pipe2) < 0)
+        exit(-1);
 
 	/*
 	 * child  reads from pipe1[0], parent writes to pipe1[1]
@@ -239,6 +305,11 @@ void os_exec(char *argv[], int *child_stdin, int *child_stdout)
 			*child_stdout = pipe2[0];  // child's stdout (get answers/tokens from stdout)
 			break;
 	}
+}
+
+void init_os()
+{
+
 }
 #endif
 
@@ -287,6 +358,60 @@ int net_tcp_connect(const char *dst_addr, unsigned short dst_port)
 	}
 	return (dst_fd);
 }
+
+void http_ask_question(int fd, char *request)
+{
+
+
+}
+
+void http_set_model(int fd, char *request)
+{
+
+
+}
+
+void *http_server(void *args)
+{
+	struct sockaddr_in srv, cli;
+	char               buf[1024];
+	socklen_t          slen   = 16;
+	int                val    = 1, sockfd, client_fd;
+	unsigned short     port   = 8086;
+
+	sockfd = net_tcp_bind(LOCALHOST, port);
+	if (sockfd == -1)
+		exit(-1);
+	for (;;) {
+		client_fd = accept(sockfd, (struct sockaddr *)&cli, &slen);
+		if (client_fd < 0)
+			continue;
+		recv(client_fd, buf, 1024, 0);
+		if (strstr(buf, "/question/"))
+			http_ask_question(client_fd, buf);
+		else if (strstr(buf, "/model/"))
+			http_set_model(client_fd, buf);
+		else if (strstr(buf, "GET /index.html HTTP/1.1"))
+			send(client_fd, index_html, index_html_size, 0);
+		close(client_fd);
+	}
+}
+
+void load_html() {
+	struct stat sb;
+	int fd, nbytes;
+
+	fd = open("index.html", O_RDONLY);
+	if (fd <= 0)
+		exit(-1);
+	fstat(fd, &sb);
+	index_html_size = sb.st_size;
+	index_html      = malloc(index_html_size);
+	nbytes          = read(fd, index_html, index_html_size);
+	if (nbytes != index_html_size)
+		exit(-1);
+}
+
 
 void load_config() {
     FILE *config_file = fopen(CONFIG_FILE, "r");
@@ -352,14 +477,14 @@ void *panda_thread(void *args)
 	char                chatbuf[4096];
 	char                tokenbuf[1024];
 	char               *token;
-	char               *argv[] = { "/usr/src/ai/llama.cpp/main",  "--log-disable", "-m", "/usr/src/ai/llama.cpp/openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--color", "--interactive-first", NULL };
-	int                 nr_events, nready, fd, epoll_fd, chat_fd, token_fd, nbytes;
+	pipe_t              llm_proxy_stdin, llm_proxy_stdout;
+	int                 nr_events, nready, fd, nbytes;
 
 	/* 
 	 * fork/execve llama.cpp/main and wait for questions from panda.js which will be written to the child's stdin
-	 * chat_fd is the child's standard output and epoll will be used to monitor when tokens are being written to it
+	 * llm_proxy_stdout is the child's standard output and select() will be used to monitor when tokens are being written to it
 	 */
-	os_exec(argv, &chat_fd, &token_fd);
+	llm_proxy(&llm_proxy_stdin, &llm_proxy_stdout);
 	while (1) {
 		/*
 		 * Wait for new questions from panda.js (via main())
@@ -367,26 +492,26 @@ void *panda_thread(void *args)
 		thread->busy = 0;
 		thread_wait(thread);
 
-		/* write the question to the llama chat program's standard input descriptor */
-		write(chat_fd, thread->query->question, strlen(thread->query->question));				
-		printf("chatfd: %d tokenfd: %d\n", chat_fd, token_fd);
+		/* write the question to the llama chat program's standard input */
+		write_pipe(llm_proxy_stdin, thread->query->question);
 		while (1) {
+			// to be replaced by epoll() for linux & GetQueuedCompletionStatus() for windows
 			FD_ZERO(&rdset);
-			FD_SET(token_fd, &rdset);
+			FD_SET(llm_proxy_stdout, &rdset);
 			timeout.tv_sec  = config.timeout;
 			timeout.tv_usec = 0;
-			nready = select(token_fd+1, &rdset, NULL, NULL, &timeout);
+			nready = select(llm_proxy_stdout+1, &rdset, NULL, NULL, &timeout);
 			printf("select nready: %d\n", nready);
 			if (nready == -1 && errno == EINTR) {
 				continue;
 			} else if (nready == 0) {
 				/* Timeout */
 				// loop through all threads to see if the timeout has expired so a CTRL+C can be sent to suspend the token generation
-			} else if (FD_ISSET(token_fd, &rdset)) {
+			} else if (FD_ISSET(llm_proxy_stdout, &rdset)) {
 				/*
 				 * llama.cpp is writing tokens to its stdout, read the tokens and send them to the discord bot
 				 */
-				token = panda_get_token(token_fd, tokenbuf);
+				token = panda_get_token(llm_proxy_stdout, tokenbuf);
 				if (!token)
 					continue;
 				thread->query->nr_tokens++;
@@ -415,10 +540,11 @@ int main()
 	struct sockaddr_in  client_addr;
 	struct query       *query;
 	char                question_buf[4096];
-	pthread_t           tid;
 	int                 panda_server_fd, client_fd, nbytes, client_addr_len, nr_threads;
 
+	init_os();
 	load_config();
+	load_html();
 	printf("nr models: %d\n", config.nr_model_instances);
 	printf("port: %d\n",      config.panda_port);
 	printf("model: %s\n",     config.model);
@@ -432,13 +558,13 @@ int main()
 		memset(&thread->qwait_condition, 0, sizeof(pthread_cond_t));
 		memset(&thread->qwait_mutex, 0, sizeof(pthread_mutex_t));
 		threads[x] = thread;
-		pthread_create(&tid, NULL, panda_thread, thread);
+		thread_create(panda_thread, thread);
 	}
 
 	panda_server_fd = net_tcp_bind(inet_addr("127.0.0.1"), config.panda_port);
 	client_fd       = accept(panda_server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 	while (1) {
-		nbytes = read(client_fd, question_buf, sizeof(question_buf)-1);
+		nbytes = recv(client_fd, question_buf, sizeof(question_buf)-1, 0);
 		if (nbytes <= 0) {
 			perror("Failed to read question from client");
 			close(client_fd);
@@ -454,7 +580,7 @@ int main()
 				threads[x]->busy       = 1;
 				threads[x]->query      = query;
 				threads[x]->discord_fd = client_fd;
-				pthread_cond_signal(&threads[x]->qwait_condition);
+				thread_signal(threads[x]);
 				break;
 			}
 		}

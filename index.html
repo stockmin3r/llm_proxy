@@ -1,0 +1,19 @@
+<html>
+<head>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+</head>
+<body>
+	<h1> Panda: An LLM Proxy </h1>
+
+	<input type=text id=prompt placeholder="Ask Panda Anything!" onclick="ask_panda()"/>
+
+	<div id=answer></div>
+<script>
+	function ask_panda() {
+		$.ajax({url:"/question/"+window.event.target.value, async:"true", complete:function(result){
+			$("#answer").val(result.responseText);
+		});
+	}
+</script>
+</body>
+</html>
