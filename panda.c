@@ -36,8 +36,8 @@
 #define LOCALHOST             0x0100007F
 
 #ifdef __LINUX__
-#define PEVENT_READ           EPOLLIN
-#define PEVENT_WRITE          EPOLLOUT
+#define EVENT_READ            EPOLLIN
+#define EVENT_WRITE           EPOLLOUT
 #endif
 
 #ifdef __LINUX__
@@ -47,6 +47,12 @@ typedef pthread_mutex_t       mutex_t;
 typedef pthread_cond_t        condition_t;
 #define mutex_lock(mtx)       pthread_mutex_lock  (mtx)
 #define mutex_unlock(mtx)     pthread_mutex_unlock(mtx)
+
+struct eventloop {
+	struct epoll_event *events;
+	int                 epoll_fd;
+};
+
 #endif
 
 #ifdef __WINDOWS__
@@ -56,10 +62,18 @@ typedef HANDLE                pipe_t;
 #define condition_t           HANDLE
 #define mutex_t               CRITICAL_SECTION
 #define in_addr_t             struct in_addr
+
+struct eventloop {
+	HANDLE       iocp;
+};
+
 #endif
+
+void  panda_send_token(char *token, char *query_id, int discord_fd);
 
 typedef int                   event_fd_t;
 typedef unsigned int          uint32_t;
+typedef struct eventloop      eventloop_t;
 
 char *index_html;
 int   index_html_size;
@@ -70,6 +84,7 @@ struct config {
 	unsigned short panda_port;          // localhost port for the discord bot to connect to
 	int            timeout;
 };
+
 
 /* Panda Event */
 struct pevent {
@@ -82,12 +97,19 @@ struct query {
 	char     *question;
 	char     *id;                     // question ID (used by discord.js to lookup the message object)
 	char     *answer;
-	int       nr_tokens;              // current number of tokens
+	char     *tokens;
+	int       tokens_size;
+	int       max_tokens_size;
 };
+
+typedef struct query query_t;
 
 struct thread {
 	condition_t      qwait_condition; // thread will wait until a question is asked
 	mutex_t          qwait_mutex;     // mutex for the wait condition (CRITICAL_SECTION on windows, pthread_cond_t on linux)
+	eventloop_t     *eventloop;
+	char            *model;           // the model associated with this LLM instance
+	char            *driver;          // llamacpp|alpaca
 	struct query    *query;
 	char           **usernames;       // keep track of usernames and assign a user to a single thread so that they keep the same context
 	int              nr_users;        // number of usernames assigned to this chat model context
@@ -107,6 +129,19 @@ struct connection {
 	int           fd;
 	unsigned int  events;
 };
+
+void *zmalloc(long size)
+{
+	void *ptr;
+
+	if (size <= 0)
+		return NULL;	
+	ptr = malloc(size);
+	if (!ptr)
+		return NULL;
+	memset(ptr, 0, size);
+	return (ptr);
+}
 
 #ifdef __WINDOWS__
 /* threads/synchronization */
@@ -208,6 +243,44 @@ void llm_proxy(pipe_t *child_stdin, pipe_t *child_stdout)
 	CloseHandle(stdin_READ);
 }
 
+eventloop_t *eventloop_create(pipe_t stdin_pipe)
+{
+	eventloop_t *eventloop = malloc(sizeof(*eventloop));
+	memset(eventloop, 0, sizeof(*eventloop));
+	return (eventloop);
+}
+
+void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
+{
+	struct query *query = thread->query;
+	char          token[8192];
+	int           size, bytesRead;
+
+	while (PeekNamedPipe(llm_proxy_stdout, NULL, NULL, NULL, &size, NULL)) {
+		if (size == 0) {
+			Sleep(500);
+			continue;
+		}
+		ReadFile(llm_proxy_stdout, token, size, &bytesRead, NULL);		
+		printf("token: %s\n", token);
+		if (!token)
+			continue;
+		if (query->tokens_size + bytesRead >= query->max_tokens_size) {
+			query->max_tokens_size *= 2;
+			query->tokens = realloc(query->tokens, query->max_tokens_size);
+			if (!query->tokens)
+				exit(-1);
+		}
+		memcpy(query->tokens+query->tokens_size, token, bytesRead);
+		query->tokens[query->tokens_size] = 0;
+		if (strlen(query->tokens) >= 64) {
+			panda_send_token(query->tokens, query->id, thread->discord_fd);
+			query->tokens_size = 0;
+			memset(query->tokens, 0, query->tokens_size);
+		}
+	}
+}
+
 void init_os()
 {
 	WSADATA wsaData;
@@ -273,15 +346,15 @@ void write_pipe(pipe_t stdin_pipe, char *question)
 
 void llm_proxy(pipe_t *child_stdin, pipe_t *child_stdout)
 {
-	char              *argv[] = { "/usr/src/ai/llama.cpp/main",  "--log-disable", "-m", config.model, "--color", "--interactive-first", NULL };
+	char              *argv[] = { "/usr/src/ai/llama.cpp/main",  "--log-disable", "-m", "/usr/src/ai/llama.cpp/openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--interactive-first", NULL };
 	const char        *envp[] = { "PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin", NULL };
 	char               buf[512];
 	int                pipe1[2]; // the pipe between the parent and the child's STDIN
 	int                pipe2[2]; // the pipe between the parent and the child's STDOUT
 
 	// Create two pipes for standard input and output of the child process
-    if (pipe(pipe1) < 0 || pipe(pipe2) < 0)
-        exit(-1);
+	if (pipe(pipe1) < 0 || pipe(pipe2) < 0)
+		exit(-1);
 
 	/*
 	 * child  reads from pipe1[0], parent writes to pipe1[1]
@@ -305,6 +378,59 @@ void llm_proxy(pipe_t *child_stdin, pipe_t *child_stdout)
 			*child_stdout = pipe2[0];  // child's stdout (get answers/tokens from stdout)
 			break;
 	}
+}
+
+void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
+{
+	eventloop_t        *eventloop = thread->eventloop;
+	query_t            *query     = thread->query;
+	struct epoll_event *event;
+	char                token[8192];
+	int                 nr_events, nbytes, fd;
+
+	while (1) {
+		nr_events = epoll_wait(thread->eventloop->epoll_fd, thread->eventloop->events, MAXEVENTS, -1);
+		for (int x = 0; x<nr_events; x++) {
+			event = &eventloop->events[x];
+			if (event->events & EPOLLIN) {
+				/*
+				 * llama.cpp is writing tokens to its stdout, read the tokens and send them to the discord bot
+				 */
+				nbytes = read(llm_proxy_stdout, token, 256);
+				if (nbytes <= 0)
+					continue;
+				token[nbytes] = 0;
+
+				if (query->tokens_size + nbytes >= query->max_tokens_size) {
+					query->max_tokens_size *= 2;
+					query->tokens = realloc(query->tokens, query->max_tokens_size);
+					if (!query->tokens)
+						exit(-1);
+				}
+				memcpy(query->tokens+query->tokens_size, token, nbytes);
+				query->tokens_size += nbytes;
+				query->tokens[query->tokens_size] = 0;
+				if (strlen(query->tokens) > 64) {
+					panda_send_token(query->tokens, thread->query->id, thread->discord_fd);
+					query->tokens_size = 0;
+				}
+			} else if (event->events & EPOLLRDHUP) {
+				close(event->data.fd);
+				break;
+			}
+		}
+	}
+}
+
+eventloop_t *eventloop_create(pipe_t stdout_pipe)
+{
+	struct epoll_event *events;
+	eventloop_t        *eventloop = (eventloop_t *)zmalloc(sizeof(*eventloop));
+
+	eventloop->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+	eventloop->events   = (struct epoll_event *)malloc(sizeof(*events) * MAXEVENTS);
+	event_add(eventloop->epoll_fd, EVENT_READ, stdout_pipe);
+	return (eventloop);	
 }
 
 void init_os()
@@ -447,18 +573,6 @@ void cleanup() {
 	free(threads);
 }
 
-/*************************************
- *           TOKENS
- ************************************/
-char *panda_get_token(int fd, char *tokenbuf)
-{
-	int nbytes = read(fd, tokenbuf, 256);
-	if (nbytes <= 0)
-		return NULL;
-	tokenbuf[nbytes] = 0;
-	return (tokenbuf);
-}
-
 void panda_send_token(char *token, char *query_id, int discord_fd)
 {
 	char msg[2048];
@@ -466,10 +580,9 @@ void panda_send_token(char *token, char *query_id, int discord_fd)
 
 	msg_size = snprintf(msg, sizeof(msg)-1, "%s %s", query_id, token);
 	send(discord_fd, msg, msg_size, 0);
-	printf("%s\n", msg);
 }
 
-void *panda_thread(void *args)
+void *llm_proxy_thread(void *args)
 {
 	struct thread      *thread = (struct thread *)args;
 	struct timeval      timeout;
@@ -485,6 +598,7 @@ void *panda_thread(void *args)
 	 * llm_proxy_stdout is the child's standard output and select() will be used to monitor when tokens are being written to it
 	 */
 	llm_proxy(&llm_proxy_stdin, &llm_proxy_stdout);
+	thread->eventloop = eventloop_create(llm_proxy_stdout);
 	while (1) {
 		/*
 		 * Wait for new questions from panda.js (via main())
@@ -494,30 +608,7 @@ void *panda_thread(void *args)
 
 		/* write the question to the llama chat program's standard input */
 		write_pipe(llm_proxy_stdin, thread->query->question);
-		while (1) {
-			// to be replaced by epoll() for linux & GetQueuedCompletionStatus() for windows
-			FD_ZERO(&rdset);
-			FD_SET(llm_proxy_stdout, &rdset);
-			timeout.tv_sec  = config.timeout;
-			timeout.tv_usec = 0;
-			nready = select(llm_proxy_stdout+1, &rdset, NULL, NULL, &timeout);
-			printf("select nready: %d\n", nready);
-			if (nready == -1 && errno == EINTR) {
-				continue;
-			} else if (nready == 0) {
-				/* Timeout */
-				// loop through all threads to see if the timeout has expired so a CTRL+C can be sent to suspend the token generation
-			} else if (FD_ISSET(llm_proxy_stdout, &rdset)) {
-				/*
-				 * llama.cpp is writing tokens to its stdout, read the tokens and send them to the discord bot
-				 */
-				token = panda_get_token(llm_proxy_stdout, tokenbuf);
-				if (!token)
-					continue;
-				thread->query->nr_tokens++;
-				panda_send_token(token, thread->query->id, thread->discord_fd);
-			}
-		}
+		process_llm_tokens(thread, llm_proxy_stdout);
 	}
 }
 
@@ -530,8 +621,11 @@ struct query *new_query(char *question)
 		return NULL;
 	*p++ = 0;
 
-	query->question = strdup(p);
-	query->id       = strdup(question);
+	query->question        = strdup(p);
+	query->id              = strdup(question);
+	query->tokens          = malloc(8192);
+	query->tokens_size     = 0;
+	query->max_tokens_size = 8192;
 	return (query);
 }
 
@@ -558,7 +652,7 @@ int main()
 		memset(&thread->qwait_condition, 0, sizeof(pthread_cond_t));
 		memset(&thread->qwait_mutex, 0, sizeof(pthread_mutex_t));
 		threads[x] = thread;
-		thread_create(panda_thread, thread);
+		thread_create(llm_proxy_thread, thread);
 	}
 
 	panda_server_fd = net_tcp_bind(inet_addr("127.0.0.1"), config.panda_port);
@@ -573,7 +667,6 @@ int main()
 		query = new_query(question_buf);
 		if (!query)
 			continue;
-		printf("question: %s\n", question_buf);
 		mutex_lock(&thread_lock);
 		for (int x = 0; x<nr_threads; x++) {
 			if (!threads[x]->busy) {

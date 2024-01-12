@@ -41,7 +41,8 @@ panda_proxy_socket.on('data', function(data) {
 	var question = question_list.find(x => x.id == data.toString().split(" ")[0]);
 	var message  = question.message;
 
-	var token = data.toString().split(" ")[1];
+	var token = data.toString();
+	token     = token.substr(token.indexOf(" ")+1);
 	if (token == "\n") {
 		question.newline = "\n";
 		question.tokens += "\n";
@@ -54,15 +55,24 @@ panda_proxy_socket.on('data', function(data) {
 	}
 	question.tokens += token;
 	if (question.answer) {
-		question.answer.edit({content:question.tokens});
-		console.log("current: " + question.tokens);
+		if (question.tokenbuf && question.tokenbuf.length + token.length < 64) {
+			question.tokenbuf += token;
+			question.newline = "";
+			return;
+		}
+		question.answer.edit({content:question.tokenbuf+question.tokens});
+		question.tokenbuf = "";
 	} else {
+		if (question.sent_answer) {
+			question.tokenbuf += token;
+			question.newline = "";
+			return;
+		}
+		question.sent_answer = true;
 		question.channel.send(question.newline + token).then((sentMessage) => {
 			question.answer = sentMessage;
-			console.log("ANSWER: " + question.answer);
 		});
 	}
-	console.log("tokens: " + question.tokens);
 	question.newline = "";
 });
 
@@ -112,8 +122,7 @@ function panda_ask_question(message, channel)
 {
 	var question = {message:message, id:QID(), edit:false, channel: channel, tokens:""};
 	question_list.push(question);
-	panda_proxy_socket.write(question.id + " " + question.message.content + "\n");
-	console.log("panda_ask_question: " + question.id + " " + question.message.content);
+	panda_proxy_socket.write(question.id + " " + question.message + "\n");
 }
 
 /*
@@ -129,5 +138,5 @@ bot.on('messageCreate', message => {
 		channel = message.guild.channels.cache.find(channel => channel.name === "general");
 
 	if (message.content.startsWith('panda:'))
-		panda_ask_question(message, channel);
+		panda_ask_question(message.content.substr(6), channel);
 });

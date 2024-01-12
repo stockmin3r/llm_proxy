@@ -14,7 +14,7 @@
   "license": "Public Domain",
   "devDependencies": {
     "electron": "^27.1.2"
-  }
+  },
   "dependencies": {
     "@xenova/transformers": "^2.13.4",
     "discord.js": "^14.14.1",
