@@ -35,7 +35,7 @@ var   main_channel;
 var   panda_proxy_socket = net.createConnection({port:config.server.panda_port});
 
 /*
- * Recieve answers from panda.c and send them to the channel the question was asked in (or DM)
+ * Recieve answers from llm_proxy.c and send them to the channel the question was asked in (or DM)
  */
 panda_proxy_socket.on('data', function(data) {
 	var question = question_list.find(x => x.id == data.toString().split(" ")[0]);
@@ -59,6 +59,14 @@ panda_proxy_socket.on('data', function(data) {
 			question.tokenbuf += token;
 			question.newline = "";
 			return;
+		}
+		if (question.tokenbuf && (question.tokenbuf.length + question.tokens.length > 2000)) {
+			console.log("token buff too large");
+			question.sent_answer = true;
+			question.channel.send(question.newline + token).then((sentMessage) => {
+				question.answer = sentMessage;
+				return;
+			});
 		}
 		question.answer.edit({content:question.tokenbuf+question.tokens});
 		question.tokenbuf = "";
