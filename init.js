@@ -15,9 +15,9 @@ function createWindow() {
 			contextIsolation: false
 		}
 	})
-	mainWindow.loadURL("http://localhost:8485");
+	mainWindow.loadURL("http://localhost:8086/index.html");
 	mainWindow.webContents.on("did-fail-load", function() {
-		mainWindow.loadURL("http://localhost:8485");
+		mainWindow.loadURL("http://localhost:8086/index.html");
 	});
 }
 
@@ -27,7 +27,13 @@ app.on('certificate-error', (event, webContents, url, error, certificate, callba
 });
 
 app.whenReady().then(() => {
-	spawn("c:\\ai\LLM-Proxy\LLM-Proxy.exe", [])
+	if (process.platform === "linux") {
+		var path = require.main.path.split("/").slice(0,-1).join("/");
+		path = "/panda";
+		spawn(path + "/bin/llm_proxy", []);
+	} else if (process.platform === "win32") {
+
+	}
 	createWindow();
 });
 
