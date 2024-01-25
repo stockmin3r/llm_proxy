@@ -1,21 +1,22 @@
 CC=gcc
 CFLAGS=-pie -fPIE -D_FORTIFY_SOURCE=2 -Wl,-z,relro,-z,now
 LDFLAGS=-lcurl
-INC=-Iinclude/ -I/usr/include/x86_64-linux-gnu/
-SRC=llm_proxy.c
+INC=-Iinclude/
+I2=-I/usr/include/x86_64-linux-gnu/
+SRC=llm_proxy.c http.c windows.c
 WCC=x86_64-w64-mingw32-g++
 WLINK=-lws2_32 -lkernel32 -Llibcurl-x64
 
 .PHONY:panda
 all:
 	@/usr/bin/echo -e "#ifndef __OS_H\n#define __OS_H\n#define __LINUX__ 1\n#endif" > include/os.h
-	gcc $(CFLAGS) $(SRC) -o llm_proxy $(LDFLAGS) -ggdb
+	gcc $(CFLAGS) $(INC) $(SRC) -o llm_proxy $(LDFLAGS) -ggdb
 	cp llm_proxy bin/
 
 win:
 	@/usr/bin/echo -e "#ifndef __OS_H\n#define __OS_H\n#define __WINDOWS__ 1\n#endif" > include/os.h
-	$(WCC) $(SRC) -m64 -o llm_proxy.exe $(WLINK) -ggdb
-	copy llm_proxy.exe bin\
+	$(WCC) $(INC) $(SRC) -m64 -o llm_proxy.exe $(WLINK) -ggdb
+	cp llm_proxy.exe bin/
 clean:
 	rm -rf panda *.o *~
 win2:
