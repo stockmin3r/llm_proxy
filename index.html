@@ -1,6 +1,8 @@
 <html>
 <head>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <style>
 	body {
@@ -197,7 +199,7 @@
 		</div>
 		<div id=midbox>
 			<div id=menu>
-				<img onclick=model_category("code")     class=avatars src="/img/codepanda.png"/>
+				<img onclick=model_category("code")    class=avatars src="/img/codepanda.png"/>
 				<img onclick=model_category("medical") class=avatars src="/img/drpanda.png"/>
 				<img onclick=model_category("bio")     class=avatars src="/img/biopanda.png"/>
 				<img onclick=model_category("law")     class=avatars src="/img/lawpanda.png"/>
@@ -221,6 +223,7 @@
 	</div>
 <script>
 	var models = [];
+
 	var current_model = 0;
 	var pyinstall_timer;
 
@@ -235,27 +238,47 @@
 	}
 
 	function config() {
-		
+		$("#llm-response").css("display", "none");
+		$("#models").css("display", "block");
 	}
 
 	function model_category() {
 
 	}
 
+	function process_tokens(tokens) {
+		console.log("tokens: " + tokens);
+
+		if (tokens.includes("```") {
+			var code = tokens.substr(tokens.indexOf("```")), codeDiv = document.createElement("div");
+			console.log("code block: " + code);
+			
+			
+		}
+
+		if (tokens.includes("[LLM::LAST_TOKEN]"))
+			return 0;
+
+		$("#llm-response-1 pre").text($("#llm-response-1 pre").text()+tokens);
+		return 1;
+	}
+
+	var prompts = { model: 0 };
+
 	function ask_panda() {
 		var data = { prompt: $("#prompt").val(), model: models[current_model].model };
 		$.ajax({type:"POST", url:"/prompt", data:JSON.stringify(data), complete:function(result){
 			var prompt_id = JSON.parse(result.responseText).prompt_id;
 			console.log("msgid: " + prompt_id);
+			var llm_response = document.createElement("div");
+
 			prompt_timer = setInterval(function(){
 				$.ajax({type:"GET", url:"/prompt/"+prompt_id, complete:function(result){
 					var tokens = JSON.parse(result.responseText).tokens;
-					console.log("tokens: " + tokens);
-					if (tokens.includes("[LLM::LAST_TOKEN]")) {
+					if (!process_tokens(tokens)) {
 						clearInterval(prompt_timer);
 						return;
 					}
-					$("#llm-response-1 pre").text($("#llm-response-1 pre").text()+tokens);
 				}});
 			}, 3000);
 		}});

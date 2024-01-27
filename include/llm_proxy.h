@@ -18,6 +18,7 @@
 #ifdef __LINUX__
 #include <sys/socket.h>
 #include <sys/epoll.h>
+#include <sys/mman.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -78,6 +79,7 @@ typedef int                   pipe_t;
 typedef pthread_mutex_t       mutex_t;
 typedef pthread_cond_t        condition_t;
 typedef pthread_t             tid_t;
+typedef unsigned long         uint64_t;
 #define mutex_lock(mtx)       pthread_mutex_lock  (mtx)
 #define mutex_unlock(mtx)     pthread_mutex_unlock(mtx)
 
@@ -86,6 +88,12 @@ struct eventloop {
 	int                 epoll_fd;
 	pipe_t              llm_proxy_stdin;
 	pipe_t              llm_proxy_stdout;
+};
+
+struct filemap {
+	char               *map;      /* memory address */
+	uint64_t            filesize; /* filesize */
+	int                 fd;       /* fd */
 };
 
 #endif
@@ -98,13 +106,21 @@ typedef HANDLE                tid_t;
 #define condition_t           HANDLE
 #define mutex_t               CRITICAL_SECTION
 #define in_addr_t             struct in_addr
-
+typedef unsigned long long    uint64_t;
 
 struct eventloop {
 	HANDLE       iocp;
 	pipe_t       llm_proxy_stdin;
 	pipe_t       llm_proxy_stdout;
 };
+
+struct filemap {
+	HANDLE       hMap;     /* Windows CreateFileMapping Handle */
+	HANDLE       hFile;    /* Windows CreateFile Handle        */
+	uint64_t     filesize; /* filesize */
+	int          fd;       /* osh fd */
+};
+
 
 void     mutex_lock        (mutex_t *mtx);
 void     mutex_unlock      (mutex_t *mtx);
@@ -191,6 +207,8 @@ void     process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout);
 void     write_pipe        (pipe_t stdin_pipe, char *question);
 void     thread_signal     (struct thread *thread);
 void     thread_wait       (struct thread *thread);
+char    *fs_mapfile_rw(char *path, struct filemap *filemap);
+
 
 char *curl_get(char *url);
 

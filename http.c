@@ -161,37 +161,34 @@ void *http_server(void *args)
 
 void load_image(const char *filename, unsigned char **image, unsigned int *image_size)
 {
-	struct stat sb;
-	char       *buf;
-	int         fd, nbytes;
+	struct stat    sb;
+	struct filemap filemap;
+	char          *png, *buf;
+	int            fd, nbytes;
 
-	fd = open(filename, O_RDONLY);
-	if (fd <= 0)
-		return;
-	fstat(fd, &sb);
-	buf = (char *)malloc(sb.st_size + sizeof(HTTP_IMAGE)+512);
+	memset(&filemap, 0, sizeof(filemap));
+	png = fs_mapfile_rw((char *)filename, &filemap);
+	printf("filemap: %d\n", filemap.filesize);
+	if (!png)
+		exit(-1);
+	buf = (char *)malloc(filemap.filesize + sizeof(HTTP_IMAGE)+512);
 	if (!buf)
 		return;
-	nbytes = snprintf(buf, 256, HTTP_IMAGE, (int)sb.st_size);
-	read(fd, buf+nbytes, sb.st_size);
-	close(fd);
+	nbytes = snprintf(buf, 256, HTTP_IMAGE, (int)filemap.filesize);
+	memcpy(buf+nbytes, png, filemap.filesize);
 	*image_size = sb.st_size+nbytes;
 	*image      = (unsigned char *)buf;
 }
 
 void load_html() {
-	struct stat sb;
-	int fd, nbytes;
+	struct filemap filemap;
 
-	fd = open("index.html", O_RDONLY);
-	if (fd <= 0)
+	index_html = fs_mapfile_rw((char *)"index.html", &filemap);
+	if (!index_html) {
+		printf("failed to load index.html\n");
 		exit(-1);
-	fstat(fd, &sb);
-	index_html_size = sb.st_size;
-	index_html      = (char *)malloc(index_html_size);
-	nbytes          = read(fd, index_html, index_html_size);
-	if (nbytes != index_html_size)
-		exit(-1);
+	}
+	index_html_size = filemap.filesize;
 }
 
 void init_http(void)
