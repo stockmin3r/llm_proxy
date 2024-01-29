@@ -66,7 +66,6 @@ char *fs_mapfile_rw(char *path, struct filemap *filemap)
 	filemap->hMap     = hMap;
 	filemap->hFile    = hFile;
 	filemap->filesize = liFileSize.QuadPart;
-	printf("filesize: %d qpart: %d\n", liFileSize, filemap->filesize);
 	return ((char *)lpBasePtr);
 }
 #endif

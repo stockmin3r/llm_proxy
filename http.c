@@ -168,7 +168,6 @@ void load_image(const char *filename, unsigned char **image, unsigned int *image
 
 	memset(&filemap, 0, sizeof(filemap));
 	png = fs_mapfile_rw((char *)filename, &filemap);
-	printf("filemap: %d\n", filemap.filesize);
 	if (!png)
 		exit(-1);
 	buf = (char *)malloc(filemap.filesize + sizeof(HTTP_IMAGE)+512);
