@@ -150,7 +150,7 @@ void llm_network_proxy(struct thread *thread)
 void llm_pipe_proxy(struct thread *thread)
 {
 	eventloop_t       *eventloop;
-	char              *argv[]    = { "/usr/src/ai/llama.cpp/main",  "--log-disable", "-m", "/usr/src/ai/llama.cpp/openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--interactive-first", NULL };
+	char              *argv[]    = { "drivers/llamacpp/main",  "--log-disable", "-m", "models/openhermes-2.5-mistral-7b.Q4_K_M.gguf", "--interactive-first", NULL };
 	const char        *envp[]    = { "PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin", NULL };
 	char               buf[512];
 	int                pipe1[2]; // the pipe between the parent and the child's STDIN
@@ -269,7 +269,8 @@ void random_string(char *str)
 socket_t net_tcp_bind(uint32_t bind_addr, unsigned short port)
 {
 	struct sockaddr_in serv;
-	int sockfd, val = 1;
+	socket_t sockfd, val = 1;
+	int addrlen = sizeof(serv);
 
 	sockfd = socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_TCP);
 	if (sockfd < 0)
@@ -278,10 +279,11 @@ socket_t net_tcp_bind(uint32_t bind_addr, unsigned short port)
 	setsockopt(sockfd, SOL_SOCKET,  SO_REUSEADDR, (const char *)&val, sizeof(val));
 	setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY,  (const char *)&val, sizeof(val));
 
+	memset(&serv, 0, sizeof(serv));
 	serv.sin_family      = AF_INET;
 	serv.sin_port        = htons(port);
 	serv.sin_addr.s_addr = bind_addr;
-	if (bind(sockfd, (struct sockaddr *)&serv, 0x10) < 0) {
+	if (bind(sockfd, (struct sockaddr *)&serv, sizeof(serv)) == SOCKET_ERROR) {
 		close(sockfd);
 		return -1;
 	}
@@ -298,14 +300,12 @@ socket_t net_tcp_connect(const char *dst_addr, unsigned short dst_port)
 	int dst_fd;
 
 	dst_fd = socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_TCP);
-	if (dst_fd < 0) {
-		perror("socket");
+	if (dst_fd < 0)
 		return -1;
-	}
 	paddr.sin_family      = AF_INET;
 	paddr.sin_port        = htons(dst_port);
 	paddr.sin_addr.s_addr = inet_addr(dst_addr);
-	if (connect(dst_fd, (struct sockaddr *)&paddr, 0x10) < 0) {
+	if (connect(dst_fd, (struct sockaddr *)&paddr, sizeof(paddr)) < 0) {
 		close(dst_fd);
 		return -1;
 	}
@@ -356,8 +356,12 @@ void load_models()
 	if (!json)
 		exit(-1);
 	json[json_size++] = '[';
+
+	nr_models = 0;
 	while ((nextline=strchr(line, '\n'))) {
 		// modelname,type,url
+		if (*(nextline+1) == '\0')
+			break;
 		type = strchr(line, ',');
 		if (!type) {
 			printf("incorrect models.csv format: modelname,type,url\n");
@@ -385,7 +389,7 @@ void load_models()
 		else
 			model->status   = "not installed";
 
-		json_size += snprintf(json+json_size, 256, "{\"model\":\"%s\",\"type\":\"%s\",\"status\":\"%s\"}", model->name, model->type, model->status);
+		json_size += snprintf(json+json_size, 256, "{\"model\":\"%s\",\"type\":\"%s\",\"status\":\"%s\"},", model->name, model->type, model->status);
 		if (nr_models >= MAX_MODELS)
 			break;
 		line = nextline;
@@ -396,7 +400,7 @@ void load_models()
 				exit(-1);
 		}
 	}
-	json[json_size++] = ']';
+	json[json_size-1] = ']';
 	models_json = (char *)malloc(sizeof(HTTP_JSON)+json_size+256);
 	if (!models_json)
 		exit(-1);
@@ -533,16 +537,14 @@ int main()
 	int                 panda_server_fd, client_fd, nbytes, client_addr_len, nr_threads;
 
 	load_models();
-	init_http();
 	init_os();
+	init_http();
 	load_config();
-	printf("nr models: %d\n", config.nr_model_instances);
 	printf("port: %d\n",      config.panda_port);
 	printf("model: %s\n",     config.model);
 
 	nr_threads = config.nr_model_instances;
 	threads    = (struct thread **)malloc(sizeof(struct thread) * nr_threads);
-
 	for (int x = 0; x<nr_threads; x++) {
 		thread           = (struct thread *)zmalloc(sizeof(*thread));
 		threads[x]       = thread;

@@ -4,7 +4,7 @@ LDFLAGS=-lcurl
 INC=-Iinclude/
 I2=-I/usr/include/x86_64-linux-gnu/
 SRC=llm_proxy.c http.c windows.c lib.c
-WCC=x86_64-w64-mingw32-gcc
+WCC=x86_64-w64-mingw32-g++
 WLINK=-lws2_32 -lkernel32 -Llibcurl-x64
 
 .PHONY:panda

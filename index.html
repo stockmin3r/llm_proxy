@@ -248,12 +248,9 @@
 
 	function process_tokens(tokens) {
 		console.log("tokens: " + tokens);
-
-		if (tokens.includes("```") {
+		if (tokens.includes('```')) {
 			var code = tokens.substr(tokens.indexOf("```")), codeDiv = document.createElement("div");
 			console.log("code block: " + code);
-			
-			
 		}
 
 		if (tokens.includes("[LLM::LAST_TOKEN]"))

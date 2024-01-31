@@ -96,6 +96,8 @@ struct filemap {
 	int                 fd;       /* fd */
 };
 
+#define SOCKET_ERROR -1
+
 #endif
 
 #ifdef __WINDOWS__
@@ -124,6 +126,7 @@ struct filemap {
 
 void     mutex_lock        (mutex_t *mtx);
 void     mutex_unlock      (mutex_t *mtx);
+void     printError        (void);
 
 #endif
 

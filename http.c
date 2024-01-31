@@ -197,7 +197,7 @@ void init_http(void)
 	load_image("drpanda.png",   &drpanda_png,   &drpanda_png_size);
 	load_image("lawpanda.png",  &lawpanda_png,  &lawpanda_png_size);
 	load_image("biopanda.png",  &biopanda_png,  &biopanda_png_size);
-	thread_create(http_server, NULL);
+	thread_create(&http_server, NULL);
 }
 
 #ifdef __LIBCURL__
