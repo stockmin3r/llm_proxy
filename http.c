@@ -17,19 +17,17 @@ void http_get_prompt(int fd, char *request)
 	char           json[64 KB];
 	char           tokens[64 KB];
 	char          *prompt_id, *p;
-	int            json_size, tokens_size;
+	int            json_size, tokens_size, empty_response = 1;
 
 	p = strstr(request, "prompt/");
 	if (!p)
-		return;
+		goto out;
 
 	prompt_id = p + 7;
 	p = strchr(prompt_id, ' ');
 	if (!p)
-		return;
+		goto out;
 	*p = 0;
-
-	mutex_lock(&thread_mutex);
 	for (int x = 0; x<config.nr_model_instances; x++) {
 		query = threads[x]->query;
 		if (!query)
@@ -43,10 +41,17 @@ void http_get_prompt(int fd, char *request)
 			memset(query->tokens, 0, query->tokens_size);
 			query->tokens_size = 0;
 			mutex_unlock(&query->query_lock);
+			empty_response = 0;
 			break;
 		}
 	}
-	mutex_unlock(&thread_mutex);
+out:
+	if (empty_response) {
+		json_size = snprintf(json, sizeof(json)-1, HTTP_JSON, 2);
+		json[json_size++] = '{';
+		json[json_size++] = '}';
+		send(fd, json, json_size, 0);
+	}
 }
 
 void http_post_prompt(int fd, char *request)
@@ -59,14 +64,14 @@ void http_post_prompt(int fd, char *request)
 
 	if (!(prompt=strstr(request, "prompt\"")))
 		return;
-	prompt += 7;
-	p = strchr(prompt, '\"');
+	prompt += 9;
+	p = strstr(prompt, "\",\"model\":\"");
 	if (!p)
 		return;
 	*p++ = '\n';
 	*p   = 0;
 
-	query                  = (struct query *)malloc(sizeof(*query));
+	query                  = (struct query *)zmalloc(sizeof(*query));
 	query->question        = strdup(prompt);
 	query->tokens          = (char *)malloc(8192);
 	query->tokens_size     = 0;
@@ -93,7 +98,6 @@ void http_send_img(int fd, char *request)
 {
 	// GET /img/drpanda.png HTTP/1.1\r\n
 	char *image = request+9;
-
 	if (!strncmp(image, "drpanda", 7))
 		send(fd, (char *)drpanda_png, drpanda_png_size, 0);
 	else if (!strncmp(image, "lawpanda", 8))

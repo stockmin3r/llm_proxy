@@ -94,6 +94,7 @@ void thread_create(void *(*func)(void *), void *args)
 
 void write_pipe(pipe_t stdin_pipe, char *question)
 {
+		printf("asking question: %s len: %d\n", question, strlen(question));
 	write(stdin_pipe, question, strlen(question));
 }
 
@@ -481,10 +482,8 @@ void *llm_proxy_thread(void *args)
 		 */
 		thread->busy = 0;
 		thread_wait(thread);
-		printf("thread woken up, writing to: %d\n", thread->eventloop->llm_proxy_stdin);
 
 		/* write the question to llamacpp's standard input */
-		printf("llm stdin: %d\n", thread->eventloop->llm_proxy_stdin); 
 		write_pipe(thread->eventloop->llm_proxy_stdin, thread->query->question);
 		process_llm_tokens(thread, thread->eventloop->llm_proxy_stdout);
 	}
@@ -519,7 +518,6 @@ void llm_add_query(struct query *query)
 					query->token_handler = discord_token_handler;
 					break;
 			}
-			printf("signalling thread: %d\n", x);
 			thread_signal(threads[x]);
 			break;
 		}
@@ -536,6 +534,7 @@ int main()
 	char                question_buf[4096];
 	int                 panda_server_fd, client_fd, nbytes, client_addr_len, nr_threads;
 
+	fs_mkdir("models", 0644);
 	load_models();
 	init_os();
 	init_http();

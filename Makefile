@@ -26,3 +26,7 @@ dep:
 	curl -k https://github.com/indygreg/python-build-standalone/releases/download/20240107/cpython-3.10.13+20240107-aarch64-unknown-linux-gnu-lto-full.tar.zst -o cpython-3.10.13+20240107-aarch64-unknown-linux-gnu-lto-full.tar.zst
 	unzstd cpython-3.10.13+20240107-aarch64-unknown-linux-gnu-lto-full.tar.zst
 	mv cpython-3.10.13+20240107-aarch64-unknown-linux-gnu-lto-full.tar.zst bin/python
+
+proc:
+	$(WCC) proc.c  -m64 -o proc.exe $(WLINK) -ggdb
+	$(WCC) child.c -m64 -o child.exe $(WLINK) -ggdb

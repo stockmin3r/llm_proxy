@@ -108,23 +108,23 @@ void llm_pipe_proxy(struct thread *thread)
 	// Create a STARTUPINFO struct and set the standard output to stdout_WRITE and stdin to stdin_READ
 	ZeroMemory(&start_info, sizeof(STARTUPINFO));
 	start_info.cb         = sizeof(STARTUPINFO); 
-	start_info.hStdError  = stdout_READ;
-	start_info.hStdOutput = stdout_READ;
-	start_info.hStdInput  = stdin_WRITE;
+	start_info.hStdError  = stdout_WRITE;
+	start_info.hStdOutput = stdout_WRITE;
+	start_info.hStdInput  = stdin_READ;
 	start_info.dwFlags   |= STARTF_USESTDHANDLES;
 
 	// keep track of main.exe's STDIN/STDOUT
-	thread->eventloop     = eventloop_create(stdin_WRITE);
-	thread->eventloop->llm_proxy_stdin  = stdout_READ;
-	thread->eventloop->llm_proxy_stdout = stdin_WRITE;
+	thread->eventloop     = eventloop_create(stdout_READ);
+	thread->eventloop->llm_proxy_stdin  = stdin_WRITE;
+	thread->eventloop->llm_proxy_stdout = stdout_READ;
 
     // Create a new process that reads from the pipe and writes to the standard output
-	snprintf(cmdLine, sizeof(cmdLine)-1, "main.exe --interactive-first --n-gpu-layers 15000 -m %s", config.model);
-	if (!CreateProcessA("c:\\ai\\llamacpp\\main.exe", cmdLine, NULL, NULL, TRUE, 0, NULL, NULL, &start_info, &process_info)) {
+	snprintf(cmdLine, sizeof(cmdLine)-1, "main.exe --interactive-first --log-disable --n-gpu-layers 15000 -m models\\%s", config.model);
+	if (!CreateProcessA("drivers\\llamacpp\\main.exe", cmdLine, NULL, NULL, TRUE, 0, NULL, NULL, &start_info, &process_info)) {
 		printf("failed to create process\n");
 		exit(-1);
 	}
-
+	sleep(3);
 	CloseHandle(stdout_WRITE);
 	CloseHandle(stdin_READ);
 }
@@ -141,28 +141,22 @@ void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
 	char          token[8192];
 	DWORD         size, bytesRead;
 
-/*	while (PeekNamedPipe(llm_proxy_stdout, NULL, 0, NULL, &size, NULL)) {
-		if (size == 0) {
-			Sleep(500);
-			continue;
-		}*/
-		ReadFile(llm_proxy_stdout, token, size, &bytesRead, NULL);		
-		printError();
-		printf("token: %s bytesRead: %d\n", token, bytesRead);
+	ReadFile(llm_proxy_stdout, token, size, &bytesRead, NULL);
+	if (!bytesRead)
+		return;
 
-//		if (!token)
-//			continue;
-		if (query->tokens_size + bytesRead >= query->max_tokens_size) {
-			query->max_tokens_size *= 2;
-			query->tokens = (char *)realloc(query->tokens, query->max_tokens_size);
-			if (!query->tokens)
-				exit(-1);
-		}
-		memcpy(query->tokens+query->tokens_size, token, bytesRead);
-		query->tokens[query->tokens_size] = 0;
-		if (strlen(query->tokens) >= 64)
-			discord_token_handler(query);
-//	}
+//	printf("query->tokens_size: %d max_token_size: %d\n", query->tokens_size, query->max_tokens_size);
+	if (query->tokens_size + bytesRead >= query->max_tokens_size) {
+		query->max_tokens_size *= 2;
+		query->tokens = (char *)realloc(query->tokens, query->max_tokens_size);
+		if (!query->tokens)
+			exit(-1);
+	}
+	memcpy(query->tokens+query->tokens_size, token, bytesRead);
+	query->tokens_size += bytesRead;
+	query->tokens[query->tokens_size] = 0;
+	if (strlen(query->tokens) >= 64)
+		discord_token_handler(query);
 }
 
 void init_os(void)

@@ -82,6 +82,7 @@ typedef pthread_t             tid_t;
 typedef unsigned long         uint64_t;
 #define mutex_lock(mtx)       pthread_mutex_lock  (mtx)
 #define mutex_unlock(mtx)     pthread_mutex_unlock(mtx)
+#define fs_mkdir(name,access) mkdir((const char *)name, access)
 
 struct eventloop {
 	struct epoll_event *events;
@@ -108,6 +109,7 @@ typedef HANDLE                tid_t;
 #define condition_t           HANDLE
 #define mutex_t               CRITICAL_SECTION
 #define in_addr_t             struct in_addr
+#define fs_mkdir(name,access) CreateDirectory((const char *)name, NULL)
 typedef unsigned long long    uint64_t;
 
 struct eventloop {
