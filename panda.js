@@ -53,24 +53,32 @@ panda_proxy_socket.on('data', function(data) {
 		question.tokens += " ";
 		return;
 	}
-	question.tokens += token;
 	if (question.answer) {
 		if (question.tokenbuf && question.tokenbuf.length + token.length < 64) {
 			question.tokenbuf += token;
 			question.newline = "";
 			return;
 		}
-		if (question.tokenbuf && (question.tokenbuf.length + question.tokens.length > 2000)) {
-			console.log("token buff too large");
+		if (question.tokenbuf != undefined)
+			console.log("tokenbuf: " + question.tokenbuf + " result: " + (question.tokenbuf.length + question.tokens.length + token.length));
+
+//		console.log("msg size is: " + (question.tokenbuf.length + question.tokens.length) + " tokenbuf.length: " + question.tokenbuf.length + " tokens.length: " + question.tokens.length);
+		if ((question.tokenbuf != undefined) && (question.tokenbuf.length + question.tokens.length + token.length > 2000)) {
 			question.sent_answer = true;
-			question.channel.send(question.newline + token).then((sentMessage) => {
+			var tokens = question.tokens;
+			question.channel.send(question.newline + tokens).then((sentMessage) => {
 				question.answer = sentMessage;
+				quesetion.answer.content = "";
 				return;
 			});
+			question.tokens = "";
+			return;
 		}
+		question.tokens += token;
 		question.answer.edit({content:question.tokenbuf+question.tokens});
 		question.tokenbuf = "";
 	} else {
+		question.tokens += token;
 		if (question.sent_answer) {
 			question.tokenbuf += token;
 			question.newline = "";

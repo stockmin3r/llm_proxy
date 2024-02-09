@@ -5,7 +5,7 @@ INC=-Iinclude/
 I2=-I/usr/include/x86_64-linux-gnu/
 SRC=llm_proxy.c http.c windows.c lib.c
 WCC=x86_64-w64-mingw32-g++
-WLINK=-lws2_32 -lkernel32 -Llibcurl-x64
+WLINK=-lws2_32 -lkernel32 -lmsvcrt -Llibcurl-x64
 
 .PHONY:panda
 all:
@@ -16,7 +16,6 @@ all:
 win:
 	@/usr/bin/echo -e "#ifndef __OS_H\n#define __OS_H\n#define __WINDOWS__ 1\n#endif" > include/os.h
 	$(WCC) $(INC) $(SRC) -m64 -o llm_proxy.exe $(WLINK) -ggdb
-	cp llm_proxy.exe bin/
 clean:
 	rm -rf panda *.o *~
 win2:
@@ -30,3 +29,4 @@ dep:
 proc:
 	$(WCC) proc.c  -m64 -o proc.exe $(WLINK) -ggdb
 	$(WCC) child.c -m64 -o child.exe $(WLINK) -ggdb
+

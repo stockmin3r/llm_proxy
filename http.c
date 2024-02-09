@@ -34,10 +34,7 @@ void http_get_prompt(int fd, char *request)
 			continue;
 		if (!strcmp(query->id, prompt_id)) {
 			mutex_lock(&query->query_lock);
-			tokens_size = snprintf(tokens, sizeof(tokens)-1, "{\"tokens\":\"%s\"}", query->tokens);
-			json_size   = snprintf(json,   sizeof(json)-1,  HTTP_JSON, tokens_size);
-			memcpy(json+json_size, tokens, tokens_size);
-			send(fd, json, json_size+tokens_size, 0);
+			send(fd, json, json_size, 0);
 			memset(query->tokens, 0, query->tokens_size);
 			query->tokens_size = 0;
 			mutex_unlock(&query->query_lock);
@@ -78,8 +75,9 @@ void http_post_prompt(int fd, char *request)
 	query->max_tokens_size = 8192;
 	query->output_fd       = -1;
 	query->token_handler   = NULL;
-
-	random_string(prompt_id);
+	mutex_create(&query->query_lock);
+	strcpy(prompt_id, "AAAAAAA");
+//	random_string(prompt_id);
 	query->id     = strdup(prompt_id);
 	llm_add_query(query);
 	json_size     = snprintf(json, sizeof(json)-1, "{\"prompt_id\":\"%s\"}", prompt_id);

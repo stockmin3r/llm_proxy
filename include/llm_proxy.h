@@ -10,8 +10,6 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <errno.h>
-//#include <curl/curl.h>
-#include "/usr/include/x86_64-linux-gnu/curl/curl.h"
 
 #include <os.h>
 
@@ -22,10 +20,13 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include "/usr/include/x86_64-linux-gnu/curl/curl.h"
 #define __LIBCURL__ 1
 #endif
 
 #ifdef __WINDOWS__
+#include  <synchapi.h>
+#include <sdkddkver.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -36,19 +37,25 @@
 #endif
 
 #define HTTP_GET   "HTTP/1.1 200 OK\r\n"                 \
-                   "Connection:close\r\n"                \
-                   "Content-Type:text/html\r\n"          \
+                   "Connection: close\r\n"               \
+                   "Content-Type: text/html\r\n"         \
                    "Content-Length: %d\r\n\r\n"          \
 
 
 #define HTTP_IMAGE "HTTP/1.1 200 OK\r\n"                 \
-                   "Content-Type:image/png\r\n"          \
+                   "Content-Type: image/png\r\n"         \
                    "Connection: close\r\n"               \
                    "Content-Length: %d\r\n\r\n"          \
 
 #define HTTP_JSON "HTTP/1.1 200 OK\r\n"                  \
                   "Content-type: application/json\r\n"   \
+				  "Connection: close\r\n"                \
                   "Content-Length: %d\r\n\r\n"           \
+
+#define HTTP_TXT  "HTTP/1.1 200 OK\r\n"                  \
+                  "Content-type: text/html\r\n"          \
+				  "Connection: close\r\n"                \
+                  "Content-Length: %d\r\n\r\n%s"         \
 
 #define KB * 1024
 
@@ -99,6 +106,8 @@ struct filemap {
 
 #define SOCKET_ERROR -1
 
+#define mutex_create(mtx) memset(mtx, 0, sizeof(mtx))
+
 #endif
 
 #ifdef __WINDOWS__
@@ -106,7 +115,7 @@ typedef SOCKET                socket_t;
 typedef HANDLE                pipe_t;
 typedef HANDLE                tid_t;
 #define SOCK_CLOEXEC          0
-#define condition_t           HANDLE
+#define condition_t           CONDITION_VARIABLE
 #define mutex_t               CRITICAL_SECTION
 #define in_addr_t             struct in_addr
 #define fs_mkdir(name,access) CreateDirectory((const char *)name, NULL)
@@ -128,6 +137,7 @@ struct filemap {
 
 void     mutex_lock        (mutex_t *mtx);
 void     mutex_unlock      (mutex_t *mtx);
+void     mutex_create      (mutex_t *mtx);
 void     printError        (void);
 
 #endif
@@ -214,6 +224,7 @@ void     thread_signal     (struct thread *thread);
 void     thread_wait       (struct thread *thread);
 char    *fs_mapfile_rw(char *path, struct filemap *filemap);
 
+void cstring_strstr_replace(char *, char *);
 
 char *curl_get(char *url);
 

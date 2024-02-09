@@ -94,7 +94,6 @@ void thread_create(void *(*func)(void *), void *args)
 
 void write_pipe(pipe_t stdin_pipe, char *question)
 {
-		printf("asking question: %s len: %d\n", question, strlen(question));
 	write(stdin_pipe, question, strlen(question));
 }
 
@@ -206,6 +205,7 @@ void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
 				if (nbytes <= 0)
 					continue;
 
+				mutex_lock(&query->query_lock);
 				if (query->tokens_size + nbytes >= query->max_tokens_size) {
 					query->max_tokens_size *= 2;
 					query->tokens = (char *)realloc(query->tokens, query->max_tokens_size);
@@ -214,13 +214,13 @@ void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
 				}
 
 				// update query->tokens with the latest 'tokens' read() from llamacpp's stdout
-				mutex_lock(&query->query_lock);
 				memcpy(query->tokens+query->tokens_size, token, nbytes);
 				query->tokens_size += nbytes;
 				query->tokens[query->tokens_size] = 0;
 				mutex_unlock(&query->query_lock);
 				if (query->token_handler && strlen(query->tokens) > 64)
 					query->token_handler(query);
+				
 			} else if (event->events & EPOLLRDHUP) {
 				close(event->data.fd);
 				break;
@@ -488,7 +488,6 @@ void *llm_proxy_thread(void *args)
 		process_llm_tokens(thread, thread->eventloop->llm_proxy_stdout);
 	}
 }
-
 struct query *new_query(char *question)
 {
 	struct query *query = (struct query *)malloc(sizeof(*query));

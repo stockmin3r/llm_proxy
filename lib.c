@@ -1,5 +1,20 @@
 #include <llm_proxy.h>
 
+void cstring_strstr_replace(char *str, char *pattern)
+{
+	char *p, *endp;
+	int pattern_len = strlen(pattern), string_len = strlen(str);
+
+	endp = str + string_len;
+	while ((p=strstr(str, pattern)) != NULL) {
+		memmove(p, p+pattern_len, endp-p-pattern_len);
+		str[string_len-pattern_len] = 0;
+		str         = p + 1;
+		endp       -= pattern_len;
+		string_len -= pattern_len;
+	}
+}
+
 #ifdef __LINUX__
 char *fs_mapfile_rw(char *path, struct filemap *filemap)
 {

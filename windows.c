@@ -4,7 +4,7 @@
 /* threads/synchronization */
 void llm_thread_create(void *(*func)(void *), struct thread *thread)
 {
-	thread->qwait_condition = CreateEvent(NULL, TRUE, FALSE, NULL);
+	InitializeConditionVariable(&thread->qwait_condition);
 	InitializeCriticalSection(&thread->qwait_mutex);
 	thread->tid = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)func, thread, 0, NULL);
 }
@@ -12,6 +12,18 @@ void llm_thread_create(void *(*func)(void *), struct thread *thread)
 void thread_create(void *(*func)(void *), void *args)
 {
 	CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)func, args, 0, NULL);
+}
+
+void thread_wait(struct thread *thread)
+{
+	EnterCriticalSection(&thread->qwait_mutex);
+	SleepConditionVariableCS(&thread->qwait_condition, &thread->qwait_mutex, INFINITE);
+}
+
+void thread_signal(struct thread *thread)
+{
+	LeaveCriticalSection(&thread->qwait_mutex);
+	WakeConditionVariable(&thread->qwait_condition);
 }
 
 void mutex_lock(mutex_t *mtx)
@@ -23,6 +35,38 @@ void mutex_unlock(mutex_t *mtx)
 {
 	LeaveCriticalSection(mtx);
 }
+
+void mutex_create(mutex_t *mtx)
+{
+	InitializeCriticalSection(mtx);
+}
+
+void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
+{
+	struct query *query = thread->query;
+	char          token[8192];
+	DWORD         size, bytesRead;
+
+	while (1) {
+		ReadFile(llm_proxy_stdout, token, sizeof(token)-1, &bytesRead, NULL);
+		if (!bytesRead)
+			return;
+
+		mutex_lock(&query->query_lock);
+		if (query->tokens_size + bytesRead >= query->max_tokens_size) {
+			query->max_tokens_size *= 2;
+			query->tokens = (char *)realloc(query->tokens, query->max_tokens_size);
+			if (!query->tokens)
+				exit(-1);
+		}
+	
+			memcpy(query->tokens+query->tokens_size, token, bytesRead);
+		query->tokens_size += bytesRead;
+		query->tokens[query->tokens_size] = 0;
+		mutex_unlock(&query->query_lock);
+	}
+}
+
 
 /* networking */
 void net_socket_block(socket_t sockfd)
@@ -48,20 +92,10 @@ void printError()
 	printf("%s\n", errorMessage);
 }
 
-void thread_wait(struct thread *thread)
-{
-	DWORD wait_result = WaitForSingleObject(thread->qwait_condition, INFINITE);
-	if (wait_result != WAIT_OBJECT_0) {
-		printError();
-		exit(-1);
-	}
-}
 
-void thread_signal(struct thread *thread)
+void llm_network_proxy(struct thread *thread)
 {
-	EnterCriticalSection(&thread->qwait_mutex);
-	SetEvent(thread->qwait_condition);
-	LeaveCriticalSection(&thread->qwait_mutex);
+
 }
 
 void write_pipe(pipe_t stdin_pipe, char *question)
@@ -69,11 +103,6 @@ void write_pipe(pipe_t stdin_pipe, char *question)
 	DWORD dwWritten;
 
 	WriteFile(stdin_pipe, question, strlen(question), &dwWritten, NULL);
-}
-
-void llm_network_proxy(struct thread *thread)
-{
-
 }
 
 void llm_pipe_proxy(struct thread *thread)
@@ -133,30 +162,6 @@ eventloop_t *eventloop_create(pipe_t stdin_pipe)
 {
 	eventloop_t *eventloop = (eventloop_t *)zmalloc(sizeof(*eventloop));
 	return (eventloop);
-}
-
-void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
-{
-	struct query *query = thread->query;
-	char          token[8192];
-	DWORD         size, bytesRead;
-
-	ReadFile(llm_proxy_stdout, token, size, &bytesRead, NULL);
-	if (!bytesRead)
-		return;
-
-//	printf("query->tokens_size: %d max_token_size: %d\n", query->tokens_size, query->max_tokens_size);
-	if (query->tokens_size + bytesRead >= query->max_tokens_size) {
-		query->max_tokens_size *= 2;
-		query->tokens = (char *)realloc(query->tokens, query->max_tokens_size);
-		if (!query->tokens)
-			exit(-1);
-	}
-	memcpy(query->tokens+query->tokens_size, token, bytesRead);
-	query->tokens_size += bytesRead;
-	query->tokens[query->tokens_size] = 0;
-	if (strlen(query->tokens) >= 64)
-		discord_token_handler(query);
 }
 
 void init_os(void)
