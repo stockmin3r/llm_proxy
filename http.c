@@ -1,7 +1,6 @@
 /**
  * @brief This file contains the implementation of HTTP server functions for the LLM proxy.
  */
-
 #include <llm_proxy.h>
 
 char                   *index_html;
@@ -21,137 +20,6 @@ unsigned int            codepanda_png_size;
  * @param fd The file descriptor of the client socket.
  * @param request The HTTP request string.
  */
-void http_get_prompt(int fd, char *request)
-{
-	// Implementation
-}
-
-/**
- * @brief Handles the HTTP POST request for a prompt.
- *
- * @param fd The file descriptor of the client socket.
- * @param request The HTTP request string.
- */
-void http_post_prompt(int fd, char *request)
-{
-	// Implementation
-}
-
-/**
- * @brief Handles the HTTP GET request to set a model.
- *
- * @param fd The file descriptor of the client socket.
- * @param request The HTTP request string.
- */
-void http_set_model(int fd, char *request)
-{
-	// Implementation
-}
-
-/**
- * @brief Handles the HTTP GET request to send an image.
- *
- * @param fd The file descriptor of the client socket.
- * @param request The HTTP request string.
- */
-void http_send_img(int fd, char *request)
-{
-	// Implementation
-}
-
-/**
- * @brief Handles the HTTP GET request to send the list of models.
- *
- * @param fd The file descriptor of the client socket.
- */
-void http_send_models(int fd)
-{
-	// Implementation
-}
-
-/**
- * @brief The HTTP server thread function.
- *
- * @param args The thread arguments.
- */
-void *http_server(void *args)
-{
-	// Implementation
-}
-
-/**
- * @brief Loads an image file into memory.
- *
- * @param filename The name of the image file.
- * @param image Pointer to store the image data.
- * @param image_size Pointer to store the image size.
- */
-void load_image(const char *filename, unsigned char **image, unsigned int *image_size)
-{
-	// Implementation
-}
-
-/**
- * @brief Loads the index.html file into memory.
- */
-void load_html()
-{
-	// Implementation
-}
-
-/**
- * @brief Initializes the HTTP server.
- */
-void init_http(void)
-{
-	// Implementation
-}
-
-#ifdef __LIBCURL__
-struct curldata {
-	char         *memory;
-	size_t        size;
-	size_t        max_size;
-};
-
-/**
- * @brief Callback function for receiving data from a CURL request.
- *
- * @param buf Pointer to the received data buffer.
- * @param size The size of each data element.
- * @param count The number of data elements.
- * @param data Pointer to the user-defined data structure.
- * @return The number of bytes processed.
- */
-size_t curl_get_data(char *buf, size_t size, size_t count, void *data)
-{
-	// Implementation
-}
-
-/**
- * @brief Performs a GET request using CURL.
- *
- * @param url The URL to request.
- * @return The response data.
- */
-char *curl_get(char *url)
-{
-	// Implementation
-}
-#endif
-#include <llm_proxy.h>
-
-char                   *index_html;
-int                     index_html_size;
-unsigned char          *biopanda_png;
-unsigned int            biopanda_png_size;
-unsigned char          *lawpanda_png;
-unsigned int            lawpanda_png_size;
-unsigned char          *drpanda_png;
-unsigned int            drpanda_png_size;
-unsigned char          *codepanda_png;
-unsigned int            codepanda_png_size;
-
 void http_get_prompt(int fd, char *request)
 {
 	struct query  *query;
@@ -192,6 +60,12 @@ out:
 	}
 }
 
+/**
+ * @brief Handles the HTTP POST request for a prompt.
+ *
+ * @param fd The file descriptor of the client socket.
+ * @param request The HTTP request string.
+ */
 void http_post_prompt(int fd, char *request)
 {
 	struct query *query;
@@ -227,12 +101,24 @@ void http_post_prompt(int fd, char *request)
 	send(fd, response, response_size+json_size, 0);
 }
 
+/**
+ * @brief Handles the HTTP GET request to set a model.
+ *
+ * @param fd The file descriptor of the client socket.
+ * @param request The HTTP request string.
+ */
 void http_set_model(int fd, char *request)
 {
 
 
 }
 
+/**
+ * @brief Handles the HTTP GET request to send an image.
+ *
+ * @param fd The file descriptor of the client socket.
+ * @param request The HTTP request string.
+ */
 void http_send_img(int fd, char *request)
 {
 	// GET /img/drpanda.png HTTP/1.1\r\n
@@ -247,11 +133,21 @@ void http_send_img(int fd, char *request)
 		send(fd, (char *)codepanda_png, codepanda_png_size, 0);
 }
 
+/**
+ * @brief Handles the HTTP GET request to send the list of models.
+ *
+ * @param fd The file descriptor of the client socket.
+ */
 void http_send_models(int fd)
 {
 	send(fd, models_json, models_json_size, 0);
 }
 
+/**
+ * @brief The HTTP server thread function.
+ *
+ * @param args The thread arguments.
+ */
 void *http_server(void *args)
 {
 	struct sockaddr_in srv, cli;
@@ -301,6 +197,13 @@ void *http_server(void *args)
 	}
 }
 
+/**
+ * @brief Loads an image file into memory.
+ *
+ * @param filename The name of the image file.
+ * @param image Pointer to store the image data.
+ * @param image_size Pointer to store the image size.
+ */
 
 void load_image(const char *filename, unsigned char **image, unsigned int *image_size)
 {
@@ -322,6 +225,9 @@ void load_image(const char *filename, unsigned char **image, unsigned int *image
 	*image      = (unsigned char *)buf;
 }
 
+/**
+ * @brief Loads the index.html file into memory.
+ */
 void load_html() {
 	struct filemap filemap;
 
@@ -333,6 +239,9 @@ void load_html() {
 	index_html_size = filemap.filesize;
 }
 
+/**
+ * @brief Initializes the HTTP server.
+ */
 void init_http(void)
 {
 	load_html();
@@ -350,6 +259,15 @@ struct curldata {
 	size_t        max_size;
 };
 
+/**
+ * @brief Callback function for receiving data from a CURL request.
+ *
+ * @param buf Pointer to the received data buffer.
+ * @param size The size of each data element.
+ * @param count The number of data elements.
+ * @param data Pointer to the user-defined data structure.
+ * @return The number of bytes processed.
+ */
 size_t curl_get_data(char *buf, size_t size, size_t count, void *data)
 {
 	struct curldata *cdata = (struct curldata *)data;
@@ -366,6 +284,12 @@ size_t curl_get_data(char *buf, size_t size, size_t count, void *data)
 	return (realsize);
 }
 
+/**
+ * @brief Performs a GET request using CURL.
+ *
+ * @param url The URL to request.
+ * @return The response data.
+ */
 char *curl_get(char *url)
 {
 	CURL              *curl;
