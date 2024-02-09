@@ -1,3 +1,174 @@
+/**
+ * @file windows.c
+ * @brief Windows-specific implementation of functions in llm_proxy.h
+ */
+
+#include <llm_proxy.h>
+
+#ifdef __WINDOWS__
+
+/**
+ * @brief Create a new thread and execute the specified function.
+ * 
+ * @param func Pointer to the function to be executed by the thread.
+ * @param thread Pointer to the thread structure.
+ */
+void llm_thread_create(void *(*func)(void *), struct thread *thread)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Create a new thread and execute the specified function.
+ * 
+ * @param func Pointer to the function to be executed by the thread.
+ * @param args Pointer to the arguments to be passed to the function.
+ */
+void thread_create(void *(*func)(void *), void *args)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Wait for a thread to finish execution.
+ * 
+ * @param thread Pointer to the thread structure.
+ */
+void thread_wait(struct thread *thread)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Signal a thread to resume execution.
+ * 
+ * @param thread Pointer to the thread structure.
+ */
+void thread_signal(struct thread *thread)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Lock a mutex.
+ * 
+ * @param mtx Pointer to the mutex.
+ */
+void mutex_lock(mutex_t *mtx)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Unlock a mutex.
+ * 
+ * @param mtx Pointer to the mutex.
+ */
+void mutex_unlock(mutex_t *mtx)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Create a new mutex.
+ * 
+ * @param mtx Pointer to the mutex.
+ */
+void mutex_create(mutex_t *mtx)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Process LLM tokens received from a pipe.
+ * 
+ * @param thread Pointer to the thread structure.
+ * @param llm_proxy_stdout Pipe for receiving LLM tokens.
+ */
+void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Set a socket to blocking mode.
+ * 
+ * @param sockfd Socket file descriptor.
+ */
+void net_socket_block(socket_t sockfd)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Set a socket to non-blocking mode.
+ * 
+ * @param sockfd Socket file descriptor.
+ */
+void net_socket_nonblock(socket_t sockfd)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Print the last error message.
+ */
+void printError()
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Main function for the LLM network proxy.
+ * 
+ * @param thread Pointer to the thread structure.
+ */
+void llm_network_proxy(struct thread *thread)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Write data to a pipe.
+ * 
+ * @param stdin_pipe Pipe for writing data.
+ * @param question Data to be written.
+ */
+void write_pipe(pipe_t stdin_pipe, char *question)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Main function for the LLM pipe proxy.
+ * 
+ * @param thread Pointer to the thread structure.
+ */
+void llm_pipe_proxy(struct thread *thread)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Create an event loop.
+ * 
+ * @param stdin_pipe Pipe for reading data.
+ * @return Pointer to the created event loop.
+ */
+eventloop_t *eventloop_create(pipe_t stdin_pipe)
+{
+	// Implementation details...
+}
+
+/**
+ * @brief Initialize the operating system.
+ */
+void init_os(void)
+{
+	// Implementation details...
+}
+
+#endif
 #include <llm_proxy.h>
 
 #ifdef __WINDOWS__

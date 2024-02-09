@@ -1,3 +1,9 @@
+/**
+ * @file llm_proxy.c
+ * @brief Implementation of the llm_proxy module.
+ *
+ * This file contains the implementation of the llm_proxy module, which includes functions for managing models, handling network communication, and interacting with the llamacpp chatbot.
+ */
 #include <llm_proxy.h>
 
 struct model    **models;

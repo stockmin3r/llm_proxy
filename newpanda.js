@@ -7,6 +7,10 @@ const net   = require('net');
 const ini   = require('ini');
 const TOKEN = process.env.TOKEN;
 
+/**
+ * Represents a PandaBot instance.
+ * @class
+ */
 class PandaBot {
   constructor() {
     this.client = new Discord.Client({

@@ -1,3 +1,50 @@
+/**
+ * @brief Replaces all occurrences of a pattern in a string.
+ *
+ * This function replaces all occurrences of the specified pattern in the given string.
+ * It modifies the original string in-place.
+ *
+ * @param str The string to be modified.
+ * @param pattern The pattern to be replaced.
+ */
+void cstring_strstr_replace(char *str, char *pattern)
+{
+	// Implementation details...
+}
+
+#ifdef __LINUX__
+/**
+ * @brief Maps a file into memory for read-write access on Linux.
+ *
+ * This function maps the specified file into memory for read-write access on Linux.
+ * It returns a pointer to the mapped memory region.
+ *
+ * @param path The path of the file to be mapped.
+ * @param filemap A pointer to the filemap structure to store file-related information.
+ * @return A pointer to the mapped memory region, or NULL if an error occurs.
+ */
+char *fs_mapfile_rw(char *path, struct filemap *filemap)
+{
+	// Implementation details...
+}
+#endif
+
+#ifdef __WINDOWS__
+/**
+ * @brief Maps a file into memory for read-write access on Windows.
+ *
+ * This function maps the specified file into memory for read-write access on Windows.
+ * It returns a pointer to the mapped memory region.
+ *
+ * @param path The path of the file to be mapped.
+ * @param filemap A pointer to the filemap structure to store file-related information.
+ * @return A pointer to the mapped memory region, or NULL if an error occurs.
+ */
+char *fs_mapfile_rw(char *path, struct filemap *filemap)
+{
+	// Implementation details...
+}
+#endif
 #include <llm_proxy.h>
 
 void cstring_strstr_replace(char *str, char *pattern)

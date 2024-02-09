@@ -6,6 +6,9 @@ const homedir = os.homedir();
 
 app.disableHardwareAcceleration();
 
+/**
+ * Creates a new window and loads a URL.
+ */
 function createWindow() {
 	const mainWindow = new BrowserWindow({
 		width:1280,

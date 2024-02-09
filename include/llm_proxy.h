@@ -167,6 +167,13 @@ struct query {
 
 typedef struct query query_t;
 
+/**
+ * @brief Represents a thread in the LLM proxy.
+ * 
+ * This struct holds information about a thread in the LLM proxy, including the condition and mutex for waiting, 
+ * the eventloop for managing the stdout descriptor, the thread ID, the associated model and driver, the user's query, 
+ * the usernames assigned to this thread, the number of assigned usernames, the busy status, and the llamacpp server port.
+ */
 struct thread {
 	condition_t      qwait_condition; // thread will wait until a question is asked
 	mutex_t          qwait_mutex;     // mutex for the wait condition (CRITICAL_SECTION on windows, pthread_cond_t on linux)

@@ -113,6 +113,13 @@ async function fetchDataFromUrl(url) {
     return await response.text();
 }
 
+/**
+ * Converts an HTML table to a CSV string.
+ * 
+ * @param {string} html - The HTML content containing the table.
+ * @returns {string} The CSV representation of the table.
+ * @throws {Error} If no table is found in the HTML.
+ */
 function convertHtmlTableToCsv(html) {
     const dom = new JSDOM(html);
     const table = dom.window.document.querySelector('table');
