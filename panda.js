@@ -68,7 +68,7 @@ panda_proxy_socket.on('data', function(data) {
 			var tokens = question.tokens;
 			question.channel.send(question.newline + tokens).then((sentMessage) => {
 				question.answer = sentMessage;
-				quesetion.answer.content = "";
+				question.answer.content = "";
 				return;
 			});
 			question.tokens = "";

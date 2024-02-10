@@ -14,32 +14,6 @@ struct thread   **threads;
 struct config     config;
 mutex_t           thread_mutex;
 
-void *zmalloc(long size)
-{
-	void *ptr;
-
-	if (size <= 0)
-		return NULL;	
-	ptr = (void *)malloc(size);
-	if (!ptr)
-		return NULL;
-	memset(ptr, 0, size);
-	return (ptr);
-}
-
-int cstring_line_count(char *str)
-{
-	char *line, *p;
-	int   count = 0;
-
-	line = str;
-	while ((p=strchr(line, '\n'))) {
-		count++;
-		line = p+1;
-	}
-	return count;
-}
-
 #ifdef __LINUX__
 void event_mod(int epoll_fd, int event_type, int fd)
 {
@@ -252,79 +226,6 @@ void init_os()
 }
 #endif
 
-uint32_t random_int()
-{
-	int fd, r;
-
-	fd = open("/dev/urandom", O_RDONLY);
-	read(fd, &r, 4);
-	close(fd);
-	return (r);
-}
-
-void random_string(char *str)
-{
-	static const char alphanum[] =
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		"abcdefghijklmnopqrstuvwxyz"
-		"0123456789";
-	for (int i = 0; i < 7; ++i)
-		str[i] = alphanum[random_int() % (sizeof(alphanum) - 1)];
-	str[7] = 0;
-}
-
-socket_t net_tcp_bind(uint32_t bind_addr, unsigned short port)
-{
-	struct sockaddr_in serv;
-	socket_t sockfd, val = 1;
-	int addrlen = sizeof(serv);
-
-	sockfd = socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_TCP);
-	if (sockfd < 0)
-		return -1;
-
-	setsockopt(sockfd, SOL_SOCKET,  SO_REUSEADDR, (const char *)&val, sizeof(val));
-	setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY,  (const char *)&val, sizeof(val));
-
-	memset(&serv, 0, sizeof(serv));
-	serv.sin_family      = AF_INET;
-	serv.sin_port        = htons(port);
-	serv.sin_addr.s_addr = bind_addr;
-	if (bind(sockfd, (struct sockaddr *)&serv, sizeof(serv)) == SOCKET_ERROR) {
-		close(sockfd);
-		return -1;
-	}
-	if (listen(sockfd, 15) < 0) {
-		close(sockfd);
-		return -1;
-	}
-	return (sockfd);
-}
-
-socket_t net_tcp_connect(const char *dst_addr, unsigned short dst_port)
-{
-	struct sockaddr_in paddr;
-	int dst_fd;
-
-	dst_fd = socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_TCP);
-	if (dst_fd < 0)
-		return -1;
-	paddr.sin_family      = AF_INET;
-	paddr.sin_port        = htons(dst_port);
-	paddr.sin_addr.s_addr = inet_addr(dst_addr);
-	if (connect(dst_fd, (struct sockaddr *)&paddr, sizeof(paddr)) < 0) {
-		close(dst_fd);
-		return -1;
-	}
-	return (dst_fd);
-}
-
-void net_download_model(char *modelname)
-{
-
-
-}
-
 int model_present(char *modelname)
 {
 	struct stat sb;
@@ -463,9 +364,10 @@ void discord_token_handler(struct query *query)
 	int  msg_size;
 
 	msg_size = snprintf(msg, sizeof(msg)-1, "%s %s", query->id, query->tokens);
+	printf("discord query: %s\n", msg);
 	send(query->output_fd, msg, msg_size, 0);
-	query->tokens_size = 0;
 	memset(query->tokens, 0, query->tokens_size);
+	query->tokens_size = 0;
 }
 
 void *llm_proxy_thread(void *args)
@@ -508,6 +410,7 @@ struct query *new_query(char *question)
 	query->tokens          = (char *)malloc(8192);
 	query->tokens_size     = 0;
 	query->max_tokens_size = 8192;
+	mutex_create(&query->query_lock);
 	return (query);
 }
 
@@ -555,7 +458,6 @@ int main()
 		thread->llm_port = config.llm_port_start++;
 		llm_thread_create(llm_proxy_thread, thread);
 	}
-
 	panda_server_fd = net_tcp_bind(inet_addr("127.0.0.1"), config.panda_port);
 	while (1) {
 		client_fd = accept(panda_server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
@@ -563,6 +465,8 @@ int main()
 			continue;
 		while (1) {
 			nbytes = recv(client_fd, question_buf, sizeof(question_buf)-1, 0);
+			question_buf[nbytes++] = '\n';
+			question_buf[nbytes] = 0;
 			if (nbytes <= 0)
 				break;
 			query = new_query(question_buf);

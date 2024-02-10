@@ -79,14 +79,23 @@ void mutex_create(mutex_t *mtx)
 void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
 {
 	struct query *query = thread->query;
-	char          token[8192];
-	DWORD         size, bytesRead;
+	char          token[512];
+	char         *p;
+	int           last_token = 0;
+	DWORD         bytesRead;
 
 	while (1) {
 		ReadFile(llm_proxy_stdout, token, sizeof(token)-1, &bytesRead, NULL);
+		printf("token: %.10s bytesRead: %d\n", token, bytesRead);
 		if (!bytesRead)
 			return;
 
+		token[bytesRead] = 0;
+		if ((p=strstr(token, "\n> "))) {
+			*p = 0;
+			bytesRead -= strlen(p);
+			last_token = 1;
+		}
 		mutex_lock(&query->query_lock);
 		if (query->tokens_size + bytesRead >= query->max_tokens_size) {
 			query->max_tokens_size *= 2;
@@ -94,11 +103,15 @@ void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
 			if (!query->tokens)
 				exit(-1);
 		}
-	
-			memcpy(query->tokens+query->tokens_size, token, bytesRead);
+		memcpy(query->tokens+query->tokens_size, token, bytesRead);
 		query->tokens_size += bytesRead;
 		query->tokens[query->tokens_size] = 0;
 		mutex_unlock(&query->query_lock);
+		if (query->token_handler && strlen(query->tokens) > 64)
+			query->token_handler(query);
+		if (last_token)
+			break;
+		memset(token, 0, bytesRead);
 	}
 }
 
@@ -204,7 +217,7 @@ void llm_pipe_proxy(struct thread *thread)
 	thread->eventloop->llm_proxy_stdout = stdout_READ;
 
     // Create a new process that reads from the pipe and writes to the standard output
-	snprintf(cmdLine, sizeof(cmdLine)-1, "main.exe --interactive-first --log-disable --n-gpu-layers 15000 -m models\\%s", config.model);
+	snprintf(cmdLine, sizeof(cmdLine)-1, "main.exe --instruct --log-disable -p prompt.txt -ngl 15000 -m models\\%s", config.model);
 	if (!CreateProcessA("drivers\\llamacpp\\main.exe", cmdLine, NULL, NULL, TRUE, 0, NULL, NULL, &start_info, &process_info)) {
 		printf("failed to create process\n");
 		exit(-1);
@@ -212,6 +225,14 @@ void llm_pipe_proxy(struct thread *thread)
 	sleep(3);
 	CloseHandle(stdout_WRITE);
 	CloseHandle(stdin_READ);
+
+	while (1) {
+		char token[512];
+		DWORD nbytes;
+		ReadFile(stdout_READ, token, sizeof(token)-1, &nbytes, NULL);
+		if (strstr(token, "\n> "))
+			break;
+	}
 }
 
 /**

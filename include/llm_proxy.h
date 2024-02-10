@@ -57,6 +57,14 @@
 				  "Connection: close\r\n"                \
                   "Content-Length: %d\r\n\r\n%s"         \
 
+#define HTTP_CHUNK "HTTP/1.1 200 OK\r\n"                 \
+                   "Content-type: text/html\r\n"         \
+                   "Connection: keep-alive\r\n"          \
+                   "Transfer-Encoding: chunked\r\n"      \
+                   "Content-Length: %d\r\n\r\n%s"        \
+
+
+
 #define KB * 1024
 
 #define CONFIG_FILE           "config.ini"
@@ -218,6 +226,7 @@ extern mutex_t         thread_mutex;
 socket_t net_tcp_bind      (uint32_t bind_addr, unsigned short port);
 socket_t net_tcp_connect   (const char *dst_addr, unsigned short dst_port);
 void     random_string     (char *str);
+int      cstring_line_count(char *str);
 void     init_http         (void);
 void     thread_create     (void *(*func)(void *), void *args);
 void    *zmalloc           (long size);

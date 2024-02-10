@@ -43,6 +43,7 @@ void http_get_prompt(int fd, char *request)
 			continue;
 		if (!strcmp(query->id, prompt_id)) {
 			mutex_lock(&query->query_lock);
+			json_size = snprintf(json, sizeof(json)-1, HTTP_TXT, query->tokens_size, query->tokens);
 			send(fd, json, json_size, 0);
 			memset(query->tokens, 0, query->tokens_size);
 			query->tokens_size = 0;
