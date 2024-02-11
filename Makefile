@@ -8,7 +8,7 @@ INC=-Iinclude/
 I2=-I/usr/include/x86_64-linux-gnu/
 
 # Source files
-SRC=llm_proxy.c http.c windows.c lib.c
+SRC=llm_proxy.c http.cpp windows.c lib.c
 
 # Windows-specific compiler and linker flags
 WCC=x86_64-w64-mingw32-g++

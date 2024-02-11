@@ -1,4 +1,5 @@
 #ifndef __LLM_PROXY
+#define __LLM_PROXY
 
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -25,15 +26,19 @@
 #endif
 
 #ifdef __WINDOWS__
-#include  <synchapi.h>
+#include <synchapi.h>
 #include <sdkddkver.h>
 #include <winsock2.h>
+#include <winioctl.h>
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <direct.h>
 #include <io.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
+
+#include <memory>
+
 #endif
 
 #define HTTP_GET   "HTTP/1.1 200 OK\r\n"                 \
@@ -62,8 +67,6 @@
                    "Connection: keep-alive\r\n"          \
                    "Transfer-Encoding: chunked\r\n"      \
                    "Content-Length: %d\r\n\r\n%s"        \
-
-
 
 #define KB * 1024
 
@@ -147,6 +150,16 @@ void     mutex_lock        (mutex_t *mtx);
 void     mutex_unlock      (mutex_t *mtx);
 void     mutex_create      (mutex_t *mtx);
 void     printError        (void);
+
+typedef struct _OVERLAPPED_EX {
+    OVERLAPPED Overlapped;
+    SOCKET     ClientSocket;
+    CHAR*      Buffer;
+    SIZE_T     BufferLength;
+    SIZE_T     BytesSent;
+    SIZE_T     TotalBytesToSend;
+    ULONG      BytesTransferred;
+} OVERLAPPED_EX, * LPOVERLAPPED_EX;
 
 #endif
 

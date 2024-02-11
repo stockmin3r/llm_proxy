@@ -2,6 +2,7 @@
  * @brief This file contains the implementation of HTTP server functions for the LLM proxy.
  */
 #include <llm_proxy.h>
+#include "include/http.hpp"
 
 char                   *index_html;
 int                     index_html_size;
@@ -13,6 +14,148 @@ unsigned char          *drpanda_png;
 unsigned int            drpanda_png_size;
 unsigned char          *codepanda_png;
 unsigned int            codepanda_png_size;
+
+#ifdef __WINDOWS__
+IOCP_HTTP_SERVER::~IOCP_HTTP_SERVER() {
+	::InterlockedDecrement(&g_RefCount);
+	if (::InterlockedCompareExchange(&g_RefCount, 0, 0) == 0) {
+		::CloseHandle(m_hCompletionPort);
+	}
+}
+
+bool IOCP_HTTP_SERVER::HttpInit() {
+	SOCKADDR_IN service;
+
+	int err = WSAStartup(MAKEWORD(2, 2), &m_WSAData);
+	if (err != NO_ERROR) {
+		printf("WSAStartup failed: %d\n", err);
+		return false;
+	}
+		
+	memset(&service, 0, sizeof(service));
+	service.sin_family      = AF_INET;
+	service.sin_addr.s_addr = htonl(INADDR_ANY);
+	service.sin_port        = htons(8086);
+	
+	m_ListenerSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (m_ListenerSocket == INVALID_SOCKET) {
+		printf("socket failed with error: %ld\n", WSAGetLastError());
+		return false;
+	}
+		
+	if (bind(m_ListenerSocket, (SOCKADDR*)&service, sizeof(service)) == SOCKET_ERROR) {
+		printf("bind failed with error: %ld\n", WSAGetLastError());
+		return false;
+	}		
+		
+	if (listen(m_ListenerSocket, SOMAXCONN) == SOCKET_ERROR) {
+		printf("listen failed with error: %ld\n", WSAGetLastError());
+		return false;
+	}
+		
+	m_hCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+	if (m_hCompletionPort == NULL) {
+		printf("CreateIoCompletionPort failed with error: %ld\n", GetLastError());
+		return false;
+	}
+
+	CreateIoCompletionPort((HANDLE)m_ListenerSocket, m_hCompletionPort, 0, 0);	
+	InterlockedIncrement(&g_RefCount);	
+	return true;
+}
+
+void IOCP_HTTP_SERVER::HttpAccept(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov)
+{
+	SOCKET          ListenSocket = (SOCKET)Key;
+	LPOVERLAPPED_EX ov           = (LPOVERLAPPED_EX)zmalloc(sizeof(OVERLAPPED_EX));
+	unsigned long   val          = 1; // FIOBIO
+
+	SOCKET ClientSocket = accept(ListenSocket, NULL, NULL);
+	if (ClientSocket == INVALID_SOCKET) {
+		DWORD ec = WSAGetLastError();
+		if (ec != ERROR_IO_PENDING)
+		    printf("accept failed with error: %ld\n", ec);
+		free(ov);
+		return;
+	}
+	
+	ioctlsocket(ClientSocket, FIONBIO, &val);
+	
+	CreateIoCompletionPort((HANDLE)ClientSocket, m_hCompletionPort, (ULONG_PTR)ClientSocket, 0);
+	
+	ZeroMemory(&(ov->Overlapped), sizeof(OVERLAPPED));
+	memcpy(&(ov->Buffer), "<html><body></body></html>", strlen("<html><body></body></html>"));
+	ov->BytesTransferred = strlen("<html><body></body></html>");
+	
+	BOOL bRet = WSASend(ClientSocket, &(ov->Buffer), 1, &(ov->BytesTransferred), 0, &(ov->Overlapped), NULL);
+	if (bRet) {
+		PostQueuedCompletionStatus(m_hCompletionPort, IoSize, 0, ov);
+	} else {
+		DWORD ec = WSAGetLastError();
+		if (ec != ERROR_IO_PENDING) {
+		    printf("WSASend failed with error: %ld\n", ec);
+		}
+	}
+}
+
+void IOCP_HTTP_SERVER::HttpRecv(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov)
+{
+    SOCKET ClientSocket = (SOCKET)Key;
+    LPOVERLAPPED_EX ov  = (LPOVERLAPPED_EX)pv;
+
+    if (IoSize == 0) {
+        disconnect(ClientSocket);
+        delete ov;
+        return;
+    }
+
+    ULONG Flags = 0;
+    BOOL  bRet  = WSARecv(ClientSocket, &(ov->Buffer), 1, &(ov->BytesTransferred), &Flags, &(ov->Overlapped), NULL);
+    if (bRet) {
+//      ProcessReceivedData(ClientSocket, ov->Buffer, ov->BytesTransferred);
+        PostQueuedCompletionStatus(m_hCompletionPort, 0, 0, static_cast<LPOVERLAPPED>(ov));
+    } else {
+        DWORD ec = WSAGetLastError();
+        if (ec != ERROR_IO_PENDING)
+            printf("WSARecv failed with error: %ld\n", ec);
+    }
+}
+
+unsigned __stdcall IOCP_HTTP_SERVER::HttpServerThread(void *param) {
+	IOCP_HTTP_SERVER *httpServer = static_cast<IOCP_HTTP_SERVER *>(param);
+	
+	while (TRUE) {
+		ULONG_PTR         Key;
+		ULONG             IoSize;
+		LPOVERLAPPED_EX   ov;
+
+		BOOL fRet = GetQueuedCompletionStatus(httpServer->m_hCompletionPort, &IoSize, &Key, (LPOVERLAPPED*)&ov, INFINITE);
+		if (!fRet) {
+			printf("GetQueuedCompletionStatus failed with error: %ld\n", GetLastError());
+			break;
+		}
+		
+		if (Key == 0) {
+			// Listener socket completed
+			httpServer->HttpAccept(Key, IoSize, ov);
+		} else {
+			// Client socket completed
+			httpServer->HttpRecv(Key, IoSize, ov);
+		}
+	}
+	return 0;
+}
+
+#endif
+
+std::unique_ptr<HTTP_SERVER> CreateHttpServer() {
+#ifdef _WINDOWS__
+    return std::make_unique<IOCP_HTTP_SERVER>();
+#endif
+#ifdef __LINUX__
+    return std::make_unique<EPOLL_HTTP_SERVER>();
+#endif
+}
 
 /**
  * @brief Handles the HTTP GET request for a prompt.
@@ -245,12 +388,23 @@ void load_html() {
  */
 void init_http(void)
 {
+    auto httpServer = CreateHttpServer();
+
 	load_html();
 	load_image("codepanda.png", &codepanda_png, &codepanda_png_size);
 	load_image("drpanda.png",   &drpanda_png,   &drpanda_png_size);
 	load_image("lawpanda.png",  &lawpanda_png,  &lawpanda_png_size);
 	load_image("biopanda.png",  &biopanda_png,  &biopanda_png_size);
 	thread_create(&http_server, NULL);
+
+    if (!httpServer->HttpInit())
+        exit(-1);
+
+    HANDLE httpServerThread = (HANDLE)_beginthreadex(NULL, 0, &IOCP_HTTP_SERVER::HttpServerThread, &httpServer, 0, NULL);
+    if (httpServerThread == NULL) {
+        printf("Failed to create worker thread\n");
+        exit(-1);
+    }
 }
 
 #ifdef __LIBCURL__
