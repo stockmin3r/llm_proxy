@@ -37,7 +37,10 @@
 #include <ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
 
+#include <string>
 #include <memory>
+#include <map>
+#include <functional>
 
 #endif
 
@@ -98,6 +101,7 @@ typedef pthread_mutex_t       mutex_t;
 typedef pthread_cond_t        condition_t;
 typedef pthread_t             tid_t;
 typedef unsigned long         uint64_t;
+typedef int                   SOCKET;
 #define mutex_lock(mtx)       pthread_mutex_lock  (mtx)
 #define mutex_unlock(mtx)     pthread_mutex_unlock(mtx)
 #define fs_mkdir(name,access) mkdir((const char *)name, access)
@@ -154,7 +158,7 @@ void     printError        (void);
 typedef struct _OVERLAPPED_EX {
     OVERLAPPED Overlapped;
     SOCKET     ClientSocket;
-    CHAR*      Buffer;
+    WSABUF     Buffer;
     SIZE_T     BufferLength;
     SIZE_T     BytesSent;
     SIZE_T     TotalBytesToSend;
@@ -241,6 +245,7 @@ socket_t net_tcp_connect   (const char *dst_addr, unsigned short dst_port);
 void     random_string     (char *str);
 int      cstring_line_count(char *str);
 void     init_http         (void);
+void     load_resources    (void);
 void     thread_create     (void *(*func)(void *), void *args);
 void    *zmalloc           (long size);
 void     init_os           (void);

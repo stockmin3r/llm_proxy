@@ -23,6 +23,13 @@ IOCP_HTTP_SERVER::~IOCP_HTTP_SERVER() {
 	}
 }
 
+void IOCP_HTTP_SERVER::Run() {
+	_beginthreadex(NULL, 0, [](void *arg) -> unsigned int {
+		reinterpret_cast<IOCP_HTTP_SERVER *>(static_cast<void *>(arg))->HttpServerThread();
+		return 0;
+	}, this, 0, NULL);	
+}
+
 bool IOCP_HTTP_SERVER::HttpInit() {
 	SOCKADDR_IN service;
 
@@ -84,12 +91,12 @@ void IOCP_HTTP_SERVER::HttpAccept(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX p
 	CreateIoCompletionPort((HANDLE)ClientSocket, m_hCompletionPort, (ULONG_PTR)ClientSocket, 0);
 	
 	ZeroMemory(&(ov->Overlapped), sizeof(OVERLAPPED));
-	memcpy(&(ov->Buffer), "<html><body></body></html>", strlen("<html><body></body></html>"));
+	memcpy(&(ov->Buffer.buf), "<html><body></body></html>", strlen("<html><body></body></html>"));
 	ov->BytesTransferred = strlen("<html><body></body></html>");
 	
-	BOOL bRet = WSASend(ClientSocket, &(ov->Buffer), 1, &(ov->BytesTransferred), 0, &(ov->Overlapped), NULL);
+	BOOL bRet = WSASend(ClientSocket, &ov->Buffer, 1, &(ov->BytesTransferred), 0, &(ov->Overlapped), NULL);
 	if (bRet) {
-		PostQueuedCompletionStatus(m_hCompletionPort, IoSize, 0, ov);
+		PostQueuedCompletionStatus(m_hCompletionPort, IoSize, 0, static_cast<LPOVERLAPPED>(&ov->Overlapped));
 	} else {
 		DWORD ec = WSAGetLastError();
 		if (ec != ERROR_IO_PENDING) {
@@ -101,19 +108,19 @@ void IOCP_HTTP_SERVER::HttpAccept(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX p
 void IOCP_HTTP_SERVER::HttpRecv(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov)
 {
     SOCKET ClientSocket = (SOCKET)Key;
-    LPOVERLAPPED_EX ov  = (LPOVERLAPPED_EX)pv;
+    LPOVERLAPPED_EX ov  = (LPOVERLAPPED_EX)pov;
 
     if (IoSize == 0) {
-        disconnect(ClientSocket);
+//      disconnect(ClientSocket);
         delete ov;
         return;
     }
 
     ULONG Flags = 0;
-    BOOL  bRet  = WSARecv(ClientSocket, &(ov->Buffer), 1, &(ov->BytesTransferred), &Flags, &(ov->Overlapped), NULL);
+    BOOL  bRet  = WSARecv(ClientSocket, &ov->Buffer, 1, &(ov->BytesTransferred), &Flags, &(ov->Overlapped), NULL);
     if (bRet) {
 //      ProcessReceivedData(ClientSocket, ov->Buffer, ov->BytesTransferred);
-        PostQueuedCompletionStatus(m_hCompletionPort, 0, 0, static_cast<LPOVERLAPPED>(ov));
+        PostQueuedCompletionStatus(m_hCompletionPort, 0, 0, static_cast<LPOVERLAPPED>(&ov->Overlapped));
     } else {
         DWORD ec = WSAGetLastError();
         if (ec != ERROR_IO_PENDING)
@@ -121,15 +128,14 @@ void IOCP_HTTP_SERVER::HttpRecv(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov
     }
 }
 
-unsigned __stdcall IOCP_HTTP_SERVER::HttpServerThread(void *param) {
-	IOCP_HTTP_SERVER *httpServer = static_cast<IOCP_HTTP_SERVER *>(param);
-	
+void IOCP_HTTP_SERVER::HttpServerThread(void)
+{
 	while (TRUE) {
 		ULONG_PTR         Key;
 		ULONG             IoSize;
 		LPOVERLAPPED_EX   ov;
 
-		BOOL fRet = GetQueuedCompletionStatus(httpServer->m_hCompletionPort, &IoSize, &Key, (LPOVERLAPPED*)&ov, INFINITE);
+		BOOL fRet = GetQueuedCompletionStatus(m_hCompletionPort, &IoSize, &Key, (LPOVERLAPPED*)&ov, INFINITE);
 		if (!fRet) {
 			printf("GetQueuedCompletionStatus failed with error: %ld\n", GetLastError());
 			break;
@@ -137,16 +143,22 @@ unsigned __stdcall IOCP_HTTP_SERVER::HttpServerThread(void *param) {
 		
 		if (Key == 0) {
 			// Listener socket completed
-			httpServer->HttpAccept(Key, IoSize, ov);
+			HttpAccept(Key, IoSize, ov);
 		} else {
 			// Client socket completed
-			httpServer->HttpRecv(Key, IoSize, ov);
+			HttpRecv(Key, IoSize, ov);
 		}
 	}
-	return 0;
 }
 
 #endif
+
+void AddDynamicRoute(std::map<std::string,
+                     std::function<void(SOCKET, const std::string&, const std::string&)>>& routes,
+                     const std::string& path,
+                     std::function<void(SOCKET, const std::string&, const std::string&)> handler) {
+    routes[path] = handler;
+}
 
 std::unique_ptr<HTTP_SERVER> CreateHttpServer() {
 #ifdef _WINDOWS__
@@ -155,7 +167,33 @@ std::unique_ptr<HTTP_SERVER> CreateHttpServer() {
 #ifdef __LINUX__
     return std::make_unique<EPOLL_HTTP_SERVER>();
 #endif
+	return nullptr;
 }
+
+/**
+ * @brief Initializes the HTTP server.
+ */
+void init_http(void)
+{
+	RouteMap routes;
+	auto     httpServer = CreateHttpServer();
+
+	load_resources();
+
+	routes["/"] = [](SOCKET socket, const std::string& query, const std::string& body) {
+		// GET / request
+	};
+
+	routes["/prompt"] = [](SOCKET socket, const std::string& query, const std::string& body) {
+		// GET /prompt request
+	};
+
+	if (!httpServer->HttpInit())
+		exit(-1);
+
+	httpServer->Run();
+}
+
 
 /**
  * @brief Handles the HTTP GET request for a prompt.
@@ -383,29 +421,14 @@ void load_html() {
 	index_html_size = filemap.filesize;
 }
 
-/**
- * @brief Initializes the HTTP server.
- */
-void init_http(void)
+void load_resources()
 {
-    auto httpServer = CreateHttpServer();
-
 	load_html();
 	load_image("codepanda.png", &codepanda_png, &codepanda_png_size);
 	load_image("drpanda.png",   &drpanda_png,   &drpanda_png_size);
 	load_image("lawpanda.png",  &lawpanda_png,  &lawpanda_png_size);
 	load_image("biopanda.png",  &biopanda_png,  &biopanda_png_size);
-	thread_create(&http_server, NULL);
-
-    if (!httpServer->HttpInit())
-        exit(-1);
-
-    HANDLE httpServerThread = (HANDLE)_beginthreadex(NULL, 0, &IOCP_HTTP_SERVER::HttpServerThread, &httpServer, 0, NULL);
-    if (httpServerThread == NULL) {
-        printf("Failed to create worker thread\n");
-        exit(-1);
-    }
-}
+}	
 
 #ifdef __LIBCURL__
 struct curldata {

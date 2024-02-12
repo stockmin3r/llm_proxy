@@ -2,12 +2,15 @@
 #define __HTTP_HPP
 
 #include <llm_proxy.h>
-#include <os.h>
+
+using RouteHandler = std::function<void(SOCKET, const std::string&, const std::string&)>;
+using RouteMap     = std::map<std::string, RouteHandler>;
 
 class HTTP_SERVER {
 public:
 	virtual ~HTTP_SERVER() {};
 	virtual bool HttpInit() = 0;
+	virtual void Run()      = 0;
 protected:
 	virtual void HttpAccept(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov) = 0;
 	virtual void HttpRecv  (ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov) = 0;
@@ -20,10 +23,11 @@ public:
 	IOCP_HTTP_SERVER();
 	~IOCP_HTTP_SERVER();
 	bool HttpInit();
+	void Run();
 protected:
 	void HttpAccept(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov) override;
 	void HttpRecv  (ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov) override;
-	unsigned __stdcall HttpServerThread(void *param);
+	void HttpServerThread(void);
 	WSADATA m_WSAData;
 	SOCKET  m_ListenerSocket;
 	HANDLE  m_hCompletionPort;
