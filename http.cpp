@@ -27,7 +27,7 @@ void IOCP_HTTP_SERVER::Run() {
 	_beginthreadex(NULL, 0, [](void *arg) -> unsigned int {
 		reinterpret_cast<IOCP_HTTP_SERVER *>(static_cast<void *>(arg))->HttpServerThread();
 		return 0;
-	}, this, 0, NULL);	
+	}, this, 0, NULL);
 }
 
 bool IOCP_HTTP_SERVER::HttpInit() {
@@ -38,36 +38,36 @@ bool IOCP_HTTP_SERVER::HttpInit() {
 		printf("WSAStartup failed: %d\n", err);
 		return false;
 	}
-		
+
 	memset(&service, 0, sizeof(service));
 	service.sin_family      = AF_INET;
 	service.sin_addr.s_addr = htonl(INADDR_ANY);
 	service.sin_port        = htons(8086);
-	
+
 	m_ListenerSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (m_ListenerSocket == INVALID_SOCKET) {
 		printf("socket failed with error: %ld\n", WSAGetLastError());
 		return false;
 	}
-		
+
 	if (bind(m_ListenerSocket, (SOCKADDR*)&service, sizeof(service)) == SOCKET_ERROR) {
 		printf("bind failed with error: %ld\n", WSAGetLastError());
 		return false;
-	}		
-		
+	}
+
 	if (listen(m_ListenerSocket, SOMAXCONN) == SOCKET_ERROR) {
 		printf("listen failed with error: %ld\n", WSAGetLastError());
 		return false;
 	}
-		
+
 	m_hCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 	if (m_hCompletionPort == NULL) {
 		printf("CreateIoCompletionPort failed with error: %ld\n", GetLastError());
 		return false;
 	}
 
-	CreateIoCompletionPort((HANDLE)m_ListenerSocket, m_hCompletionPort, 0, 0);	
-	InterlockedIncrement(&g_RefCount);	
+	CreateIoCompletionPort((HANDLE)m_ListenerSocket, m_hCompletionPort, 0, 0);
+	InterlockedIncrement(&g_RefCount);
 	return true;
 }
 
@@ -85,15 +85,15 @@ void IOCP_HTTP_SERVER::HttpAccept(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX p
 		free(ov);
 		return;
 	}
-	
+
 	ioctlsocket(ClientSocket, FIONBIO, &val);
-	
+
 	CreateIoCompletionPort((HANDLE)ClientSocket, m_hCompletionPort, (ULONG_PTR)ClientSocket, 0);
-	
+
 	ZeroMemory(&(ov->Overlapped), sizeof(OVERLAPPED));
 	memcpy(&(ov->Buffer.buf), "<html><body></body></html>", strlen("<html><body></body></html>"));
 	ov->BytesTransferred = strlen("<html><body></body></html>");
-	
+
 	BOOL bRet = WSASend(ClientSocket, &ov->Buffer, 1, &(ov->BytesTransferred), 0, &(ov->Overlapped), NULL);
 	if (bRet) {
 		PostQueuedCompletionStatus(m_hCompletionPort, IoSize, 0, static_cast<LPOVERLAPPED>(&ov->Overlapped));
@@ -140,7 +140,7 @@ void IOCP_HTTP_SERVER::HttpServerThread(void)
 			printf("GetQueuedCompletionStatus failed with error: %ld\n", GetLastError());
 			break;
 		}
-		
+
 		if (Key == 0) {
 			// Listener socket completed
 			HttpAccept(Key, IoSize, ov);
@@ -161,7 +161,7 @@ void AddDynamicRoute(std::map<std::string,
 }
 
 std::unique_ptr<HTTP_SERVER> CreateHttpServer() {
-#ifdef _WINDOWS__
+#ifdef __WINDOWS__
     return std::make_unique<IOCP_HTTP_SERVER>();
 #endif
 #ifdef __LINUX__
@@ -180,10 +180,12 @@ void init_http(void)
 
 	load_resources();
 
+	// GET /
 	routes["/"] = [](SOCKET socket, const std::string& query, const std::string& body) {
-		// GET / request
+
 	};
 
+	// GET /prompt
 	routes["/prompt"] = [](SOCKET socket, const std::string& query, const std::string& body) {
 		// GET /prompt request
 	};
@@ -193,7 +195,6 @@ void init_http(void)
 
 	httpServer->Run();
 }
-
 
 /**
  * @brief Handles the HTTP GET request for a prompt.

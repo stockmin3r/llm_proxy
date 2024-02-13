@@ -12,8 +12,9 @@ public:
 	virtual bool HttpInit() = 0;
 	virtual void Run()      = 0;
 protected:
-	virtual void HttpAccept(ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov) = 0;
-	virtual void HttpRecv  (ULONG_PTR Key, ULONG IoSize, LPOVERLAPPED_EX pov) = 0;
+	virtual void HttpAccept(void)       = 0;
+	virtual void HttpRecv  (void)       = 0;
+	virtual void HttpServerThread(void) = 0;
 };
 
 #ifdef __WINDOWS__
@@ -40,17 +41,28 @@ IOCP_HTTP_SERVER::IOCP_HTTP_SERVER() : m_WSAData{}, m_ListenerSocket{ INVALID_SO
 #ifdef __LINUX__
 class EPOLL_HTTP_SERVER : public HTTP_SERVER {
 public:
-	EPOLL_HTTP_SERVER();
-	~EPOLL_HTTP_SERVER();
-	bool HttpInit();
-protected:
-	void HttpAccept(void) override;
-	void HttpRecv  (void) override;
+	~EPOLL_HTTP_SERVER() {}
+	bool HttpInit() override {
 
-	WSADATA m_WSAData;
-	SOCKET  m_ListenerSocket;
-	HANDLE  m_hCompletionPort;
-	ULONG   g_RefCount;
+	}
+	void Run() override {
+
+	}
+	EPOLL_HTTP_SERVER() {
+
+	}
+protected:
+	
+	void HttpAccept(void) override {
+
+	}
+	void HttpRecv(void)   override {
+
+	}
+
+	void HttpServerThread(void) override {
+
+	}
 };
 #endif
 

@@ -1,10 +1,3 @@
-/**
- * This CSV file contains information about different models.
- * Each row represents a model and contains the following columns:
- * - Model name
- * - Model category
- * - Model download link
- */
 openhermes-2.5-mistral-7b.Q4_K_M.gguf,coding,https://huggingface.co/TheBloke/OpenHermes-2-Mistral-7B-GGUF/resolve/main/openhermes-2-mistral-7b.Q4_K_M.gguf?download=true
 medalpaca-13b.Q5_K_S.gguf,medical,https://huggingface.co/TheBloke/medalpaca-13B-GGUF/resolve/main/medalpaca-13b.Q5_K_S.gguf?download=true
 wizardcoder-python-34b-v1.0.Q5_K_M.gguf,coding,https://huggingface.co/TheBloke/WizardCoder-Python-34B-V1.0-GGUF/resolve/main/wizardcoder-python-34b-v1.0.Q5_K_M.gguf?download=true

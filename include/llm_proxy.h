@@ -1,7 +1,7 @@
 #ifndef __LLM_PROXY
 #define __LLM_PROXY
 
-#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -13,6 +13,12 @@
 #include <errno.h>
 
 #include <os.h>
+
+/* C++ */
+#include <string>
+#include <memory>
+#include <map>
+#include <functional>
 
 #ifdef __LINUX__
 #include <sys/socket.h>
@@ -36,11 +42,6 @@
 #include <io.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
-
-#include <string>
-#include <memory>
-#include <map>
-#include <functional>
 
 #endif
 

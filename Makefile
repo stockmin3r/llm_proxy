@@ -1,6 +1,6 @@
 # Compiler and flags
-CC=gcc
-CFLAGS=-pie -fPIE -D_FORTIFY_SOURCE=2 -Wl,-z,relro,-z,now
+CC=g++
+CFLAGS=-pie -fPIE -D_FORTIFY_SOURCE=2 -Wl,-z,relro,-z,now -std=c++17
 LDFLAGS=-lcurl
 
 # Include directories
@@ -8,7 +8,7 @@ INC=-Iinclude/
 I2=-I/usr/include/x86_64-linux-gnu/
 
 # Source files
-SRC=llm_proxy.c http.cpp windows.c lib.c
+SRC=llm_proxy.c http.cpp windows.c lib.c tokens.c
 
 # Windows-specific compiler and linker flags
 WCC=x86_64-w64-mingw32-g++
@@ -18,7 +18,7 @@ WLINK=-lws2_32 -lkernel32 -lmsvcrt -Llibcurl-x64
 .PHONY:panda
 all:
 	@/usr/bin/echo -e "#ifndef __OS_H\n#define __OS_H\n#define __LINUX__ 1\n#endif" > include/os.h
-	gcc $(CFLAGS) $(INC) $(SRC) -o llm_proxy $(LDFLAGS) -ggdb
+	$(CC) $(CFLAGS) $(INC) $(SRC) -o llm_proxy $(LDFLAGS) -ggdb
 	cp llm_proxy bin/
 
 # Target for building the llm_proxy executable for Windows

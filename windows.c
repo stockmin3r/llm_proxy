@@ -72,50 +72,6 @@ void mutex_create(mutex_t *mtx)
 }
 
 /**
- * @brief Process LLM tokens received from a pipe.
- * @param thread Pointer to the thread structure.
- * @param llm_proxy_stdout Pipe for receiving LLM tokens.
- */
-void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
-{
-	struct query *query = thread->query;
-	char          token[512];
-	char         *p;
-	int           last_token = 0;
-	DWORD         bytesRead;
-
-	while (1) {
-		ReadFile(llm_proxy_stdout, token, sizeof(token)-1, &bytesRead, NULL);
-		printf("token: %.10s bytesRead: %d\n", token, bytesRead);
-		if (!bytesRead)
-			return;
-
-		token[bytesRead] = 0;
-		if ((p=strstr(token, "\n> "))) {
-			*p = 0;
-			bytesRead -= strlen(p);
-			last_token = 1;
-		}
-		mutex_lock(&query->query_lock);
-		if (query->tokens_size + bytesRead >= query->max_tokens_size) {
-			query->max_tokens_size *= 2;
-			query->tokens = (char *)realloc(query->tokens, query->max_tokens_size);
-			if (!query->tokens)
-				exit(-1);
-		}
-		memcpy(query->tokens+query->tokens_size, token, bytesRead);
-		query->tokens_size += bytesRead;
-		query->tokens[query->tokens_size] = 0;
-		mutex_unlock(&query->query_lock);
-		if (query->token_handler && strlen(query->tokens) > 64)
-			query->token_handler(query);
-		if (last_token)
-			break;
-		memset(token, 0, bytesRead);
-	}
-}
-
-/**
  * @brief Set a socket to blocking mode.
  * @param sockfd Socket file descriptor.
  */
