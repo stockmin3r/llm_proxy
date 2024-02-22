@@ -30,8 +30,6 @@ const allowedChannels = config.channels.channels.split(',');
 const QID             = size => [...Array(16)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
 var   question_list   = [];
-var   main_channel;
-
 var   panda_proxy_socket = net.createConnection({port:config.server.panda_port});
 
 /*
@@ -99,52 +97,11 @@ bot.on('ready', () => {
 	console.log(allowedChannels.length);
 });
 
-function extractUrlFromCommand(command) {
-    const urlRegex = /\$\((CURL\((.*?)\))\)/;
-    const match = command.match(urlRegex);
-    return match ? match[2] : null;
-}
-
-async function fetchDataFromUrl(url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error('Network response was not ok');
-    }
-    return await response.text();
-}
-
-/**
- * Converts an HTML table to a CSV string.
- * 
- * @param {string} html - The HTML content containing the table.
- * @returns {string} The CSV representation of the table.
- * @throws {Error} If no table is found in the HTML.
- */
-function convertHtmlTableToCsv(html) {
-    const dom = new JSDOM(html);
-    const table = dom.window.document.querySelector('table');
-    if (!table) {
-        throw new Error('No table found in HTML');
-    }
-
-    let csv = [];
-    const rows = table.querySelectorAll('tr');
-
-    rows.forEach(row => {
-        let rowData = [];
-        row.querySelectorAll('th, td').forEach(cell => {
-            rowData.push(cell.textContent.replace(/(\r\n|\n|\r)/gm, "").trim());
-        });
-        csv.push(rowData.join(','));
-    });
-
-    return csv.join('\n');
-}
-
 function panda_ask_question(message, channel)
 {
 	var question = {message:message, id:QID(), edit:false, channel: channel, tokens:""};
 	question_list.push(question);
+	console.log("panda ask question: " + message);
 	panda_proxy_socket.write(question.id + " " + question.message + "\n");
 }
 

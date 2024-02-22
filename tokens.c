@@ -1,4 +1,19 @@
 #include <llm_proxy.h>
+/*
+std::lock_guard<std::mutex> lock(chunksMutex);
+
+void ProducerThreadFunction() {
+    while (...) {
+        std::string chunk;
+        // Fill `chunk` with the contents produced...
+        
+        // Lock the chunks vector
+        std::lock_guard<std::mutex> lock(chunksMutex);
+        
+        // Append the chunk to the chunks vector
+        chunks.push_back(chunk);
+    }
+}*/
 
 #ifdef __WINDOWS__
 
@@ -14,19 +29,75 @@ void process_llm_tokens(struct thread *thread, pipe_t llm_proxy_stdout)
 	char         *p;
 	int           last_token = 0;
 	DWORD         bytesRead;
+	OVERLAPPED    ov = {};
+
+	ov.hEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+	printf("process llm tokens\n");
+	memset(token, 0, sizeof(token));
+
+	pipeEventHandle = CreateEvent(NULL, FALSE, FALSE, NULL);
+    DWORD MAX_READ_TIME_MS = 2000; // Define desirable timeout threshold
+	for (;;)
+	{
+	    DWORD waitedTime = WaitForSingleObject(pipeEventHandle, MAX_READ_TIME_MS);
+	    if (waitedTime == WAIT_OBJECT_0 || waitedTime == WAIT_TIMEOUT)
+	    {
+	        BOOL hasNewData = TRUE;/* Write your condition to ascertain fresh data */;
+	        while (hasNewData) {
+				DWORD transferredBytes = 0;
+				if (ReadFile(g_hChildStd_OUT_Rd, chBuf, sizeof(chBuf), &transferredBytes, NULL))
+					hasNewData = TRUE;
+					printf("token: %.10s bytesRead: %d\n", token, bytesRead);
+			
+					if (!bytesRead)
+						return;
+			
+					token[bytesRead] = 0;
+			/*		if ((p=strstr(token, "\n> ")) && !strstr(token, "\n> >")) {
+						*p = 0;
+						bytesRead -= strlen(p);
+						last_token = 1;
+					}*/
+					mutex_lock(&query->query_lock);
+					if (query->tokens_size + bytesRead >= query->max_tokens_size) {
+						query->max_tokens_size *= 2;
+						query->tokens = (char *)realloc(query->tokens, query->max_tokens_size);
+						if (!query->tokens)
+							exit(-1);
+					}
+					memcpy(query->tokens+query->tokens_size, token, bytesRead);
+					query->tokens_size += bytesRead;
+					query->tokens[query->tokens_size] = 0;
+					mutex_unlock(&query->query_lock);
+					if (query->token_handler && strlen(query->tokens) > 64)
+						query->token_handler(query);
+					if (last_token)
+						break;
+					memset(token, 0, bytesRead);
+				} else {
+	                DWORD errCode = GetLastError();
+	                if (errCode != ERROR_IO_PENDING)
+						return;
+					hasNewData = FALSE;
+				}
+			}
+		}
+	}
 
 	while (1) {
-		ReadFile(llm_proxy_stdout, token, sizeof(token)-1, &bytesRead, NULL);
+		ReadFile(llm_proxy_stdout, token, sizeof(token)-1, &bytesRead, &ov);
+
 		printf("token: %.10s bytesRead: %d\n", token, bytesRead);
+
 		if (!bytesRead)
 			return;
 
 		token[bytesRead] = 0;
-		if ((p=strstr(token, "\n> "))) {
+/*		if ((p=strstr(token, "\n> ")) && !strstr(token, "\n> >")) {
 			*p = 0;
 			bytesRead -= strlen(p);
 			last_token = 1;
-		}
+		}*/
 		mutex_lock(&query->query_lock);
 		if (query->tokens_size + bytesRead >= query->max_tokens_size) {
 			query->max_tokens_size *= 2;

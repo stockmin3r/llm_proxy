@@ -33,12 +33,6 @@ void IOCP_HTTP_SERVER::Run() {
 bool IOCP_HTTP_SERVER::HttpInit() {
 	SOCKADDR_IN service;
 
-	int err = WSAStartup(MAKEWORD(2, 2), &m_WSAData);
-	if (err != NO_ERROR) {
-		printf("WSAStartup failed: %d\n", err);
-		return false;
-	}
-
 	memset(&service, 0, sizeof(service));
 	service.sin_family      = AF_INET;
 	service.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -65,7 +59,7 @@ bool IOCP_HTTP_SERVER::HttpInit() {
 		printf("CreateIoCompletionPort failed with error: %ld\n", GetLastError());
 		return false;
 	}
-
+	printf("handle: %d\n", m_hCompletionPort);
 	CreateIoCompletionPort((HANDLE)m_ListenerSocket, m_hCompletionPort, 0, 0);
 	InterlockedIncrement(&g_RefCount);
 	return true;
@@ -134,7 +128,7 @@ void IOCP_HTTP_SERVER::HttpServerThread(void)
 		ULONG_PTR         Key;
 		ULONG             IoSize;
 		LPOVERLAPPED_EX   ov;
-
+		printf("handle: %d\n", m_hCompletionPort);
 		BOOL fRet = GetQueuedCompletionStatus(m_hCompletionPort, &IoSize, &Key, (LPOVERLAPPED*)&ov, INFINITE);
 		if (!fRet) {
 			printf("GetQueuedCompletionStatus failed with error: %ld\n", GetLastError());
@@ -182,12 +176,21 @@ void init_http(void)
 
 	// GET /
 	routes["/"] = [](SOCKET socket, const std::string& query, const std::string& body) {
-
+		printf("got route\n");
 	};
 
 	// GET /prompt
 	routes["/prompt"] = [](SOCKET socket, const std::string& query, const std::string& body) {
 		// GET /prompt request
+	    // Accumulate chunks in the global vector as they arrive
+	    // Assume another thread is pushing chunks into the global chunks vector
+
+/*		std::lock_guard<std::mutex> lock(chunksMutex);
+	    if (!chunks.empty()) {
+	        HttpResponse response(HttpResponse::StatusCode::ok, "text/plain", chunks);
+	        response.SendAsync(socket, iocp_);
+	        chunks.clear();
+	    }*/
 	};
 
 	if (!httpServer->HttpInit())

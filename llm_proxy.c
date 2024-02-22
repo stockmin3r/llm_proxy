@@ -437,6 +437,7 @@ int main()
 			query->output    = LLM_OUTPUT_DISCORD;
 			llm_add_query(query);
 		}
+		printf("closing\n");
 		close(client_fd);
 	}
 }
